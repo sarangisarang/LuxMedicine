@@ -41,6 +41,11 @@ embeddings = ["sentence-transformers>=3.0"]
 # run; see its docstring.
 llm = ["anthropic>=0.116"]
 
+# The Gemini adapter. Kept separate from `llm` so installing one does not drag in the
+# other: they are alternative implementations of the same protocol, not a stack.
+# google-genai, NOT google-generativeai -- the latter is retired.
+gemini = ["google-genai>=1.0"]
+
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
