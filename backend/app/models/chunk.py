@@ -2,7 +2,16 @@ import uuid
 from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, Text, UniqueConstraint, func
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -23,6 +32,7 @@ class Chunk(Base):
     __tablename__ = "chunks"
     __table_args__ = (
         UniqueConstraint("document_version_id", "ordinal", name="uq_chunk_ordinal"),
+        CheckConstraint("page_end >= page_start", name="ck_chunk_page_span"),
         # Declared here as well as in migration 0001 so that `alembic check` compares
         # like with like. Without it autogenerate sees an index the models never
         # mention and proposes dropping it — which would make the drift detector cry
@@ -42,7 +52,13 @@ class Chunk(Base):
     )
 
     ordinal: Mapped[int] = mapped_column(Integer)  # position within the version
-    page: Mapped[int | None] = mapped_column(Integer)
+
+    # A chunk may span a page break, because a page break is typography rather than
+    # meaning. Both are 1-based PDF page indices — see app/services/extraction.py on
+    # why that is not necessarily the number printed on the page.
+    page_start: Mapped[int] = mapped_column(Integer)
+    page_end: Mapped[int] = mapped_column(Integer)
+
     section: Mapped[str | None] = mapped_column(Text)
 
     content: Mapped[str] = mapped_column(Text)

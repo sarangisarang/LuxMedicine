@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Blocks a commit that carries a secret.
+#
+# The CI job is detection, not prevention: it runs after the push, by which point the
+# secret is on GitHub and the only remedy left is revocation. This runs before the
+# commit exists, which is the last moment "don't do that" is still cheap.
+#
+# Enable once per clone:
+#     git config core.hooksPath .githooks
+
+set -uo pipefail
+
+if ! docker info >/dev/null 2>&1; then
+    # Warn rather than block. CI still scans every push, so a missing Docker daemon
+    # costs the fast check, not the guarantee — and a hook that blocks all work when
+    # Docker is down gets disabled, which costs both.
+    echo "pre-commit: Docker unavailable, skipping the secret scan." >&2
+    echo "pre-commit: CI will still scan this push. Secrets found there are already leaked." >&2
+    exit 0
+fi
+
+echo "pre-commit: scanning staged changes for secrets..."
+
+if ! MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd):/repo" -w /repo \
+    zricethezav/gitleaks:latest protect --staged --redact --verbose; then
+    cat >&2 <<'EOF'
+
+pre-commit: BLOCKED — a staged change looks like a live secret.
+
+  Real values belong in .env, which .gitignore excludes.
+  .env.example is committed and takes placeholders only.
+
+If this is genuinely a false positive, commit with --no-verify and say so in the
+commit message. Do not reach for it out of momentum: this hook exists because the
+alternative is revoking a key under time pressure.
+EOF
+    exit 1
+fi

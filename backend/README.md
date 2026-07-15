@@ -6,8 +6,9 @@ guidelines. **It does not diagnose, recommend, or advise** — see *Positioning*
 ## Setup
 
 ```bash
-cp .env.example .env          # then remove anything that is not yours to commit
-docker compose up -d          # Postgres 17 + pgvector on :5433
+git config core.hooksPath .githooks   # once per clone — blocks committing secrets
+cp .env.example .env                  # real values go here; .env is gitignored
+docker compose up -d                  # Postgres 17 + pgvector on :5433
 python -m venv .venv
 ./.venv/Scripts/python.exe -m pip install -e ".[dev]"
 ./.venv/Scripts/python.exe -m alembic upgrade head

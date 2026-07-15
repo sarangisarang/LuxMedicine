@@ -22,8 +22,20 @@ class Citation(BaseModel):
     document_title: str
     issuing_org: str
     version_label: str
-    page: int | None = None
+
+    # 1-based PDF page indices, not printed folios — see app/services/extraction.py.
+    # A range because a chunk may cross a page break; equal values mean a single page.
+    page_start: int
+    page_end: int
+
     quote: str = Field(description="Verbatim span from the source. Never paraphrased.")
+
+    @property
+    def page_display(self) -> str:
+        """"p. 45" or "pp. 45-46" — what a clinician is shown."""
+        if self.page_start == self.page_end:
+            return f"p. {self.page_start}"
+        return f"pp. {self.page_start}-{self.page_end}"
 
 
 class ExtractedStatement(BaseModel):

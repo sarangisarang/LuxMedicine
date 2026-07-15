@@ -18,6 +18,9 @@ dependencies = [
     "pydantic-settings>=2.6",
     "python-dotenv>=1.0",
     "python-multipart>=0.0.20",
+    # MIT, as is its pdfminer.six engine. Chosen over PyMuPDF, which is AGPL-3.0 and
+    # would put a copyleft obligation on a hosted clinical service.
+    "pdfplumber>=0.11.4",
 ]
 
 [project.optional-dependencies]
@@ -25,6 +28,9 @@ dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
     "httpx>=0.28",
+    # Test-only: builds real multi-page PDFs with known text, so extraction is tested
+    # against a genuine PDF rather than against a fixture that flatters the parser.
+    "reportlab>=4.2",
     "ruff>=0.8",
 ]
 
