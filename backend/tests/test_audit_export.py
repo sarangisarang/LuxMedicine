@@ -15,6 +15,8 @@ from app.core.config import get_settings
 from app.models.chunk import Chunk
 from app.models.document import Document, DocumentVersion, VersionStatus
 from app.services.audit import redact_query
+from app.models.erasure import LegalBasis
+from app.models.query import Query
 from app.services.audit_export import export_audit
 from app.services.pipeline import answer_query
 from tests.test_pipeline import DOSE, MONITORING, ScriptedExtractor, SimpleEmbedder
@@ -151,18 +153,26 @@ async def test_filters_narrow_to_one_actor_and_window(session, embedder, corpus)
 # --- the GDPR boundary, from the other side ----------------------------------------
 
 
-async def test_an_erased_question_still_proves_what_was_asked(session, embedder, corpus):
-    """#5's design, seen from the document it exists for.
+async def test_an_erased_question_is_gone_and_the_export_says_so(session, embedder, corpus):
+    """This test used to be called `test_an_erased_question_still_proves_what_was_asked`,
+    and it asserted `question_hash == sha256(question)` — the vulnerability itself, written
+    down as a requirement and guarded by CI.
 
-    The text is gone and cannot come back. The hash stays, so a question presented in
-    evidence can be matched against the row — proving what was asked without our having
-    kept it.
+    Its docstring claimed the hash proved what was asked "without our having kept it".
+    That was two claims, and they cannot both hold: a hash anyone can check against a
+    candidate is a hash anyone can check against every candidate, and clinical questions
+    are enumerable. Measured, the old design gave up 20 of 20 questions in 0.3 ms each
+    (see tests/test_erasure.py). So the hash *was* keeping it.
+
+    What survives now is the trail, not the question.
     """
     actor = f"dr-{uuid.uuid4().hex[:6]}"
     question = "45yo male, reduced EF — target bisoprolol dose?"
     answered = await ask(session, embedder, actor=actor, question=question)
 
-    await redact_query(session, answered.query_id)
+    await redact_query(
+        session, answered.query_id, erased_by="dpo-001", legal_basis=LegalBasis.CONSENT_WITHDRAWN
+    )
     await session.commit()
 
     export = await export_audit(session, actor_id=actor)
@@ -171,8 +181,39 @@ async def test_an_erased_question_still_proves_what_was_asked(session, embedder,
     assert entry.question is None
     assert entry.question_is_erased
     assert entry.redacted_at is not None
-    assert entry.question_hash == hashlib.sha256(question.encode()).hexdigest()
+
+    # The hash is still there — audit_log is append-only and hashes it — and it is now
+    # worth nothing to anyone, which is the point rather than a regression.
+    assert entry.question_hash is not None
+    assert not entry.question_hash_is_verifiable
+    assert entry.question_hash != hashlib.sha256(question.encode()).hexdigest(), (
+        "an unsalted hash of a guessable question is the question"
+    )
+    assert "unverifiable" in entry.what_the_hash_is_worth
+
     assert export.chain_intact, "erasure must not cost us the trail"
+
+
+async def test_before_erasure_the_hash_is_verifiable_by_someone_holding_the_question(
+    session, embedder, corpus
+):
+    """The capability that remains while the query is live: a party presenting a question
+    in evidence can confirm it was this one. Erasure is what removes it, deliberately."""
+    from app.services.audit import salted_hash
+
+    actor = f"dr-{uuid.uuid4().hex[:6]}"
+    question = "45yo male, reduced EF — target bisoprolol dose?"
+    answered = await ask(session, embedder, actor=actor, question=question)
+
+    query = (
+        await session.execute(select(Query).where(Query.id == answered.query_id))
+    ).scalar_one()
+
+    export = await export_audit(session, actor_id=actor)
+    [entry] = export.entries
+
+    assert entry.question_hash_is_verifiable
+    assert entry.question_hash == salted_hash(query.text_salt, question)
 
 
 # --- what the chain cannot see -----------------------------------------------------

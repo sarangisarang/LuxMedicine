@@ -19,9 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.db.session import get_session
 from app.main import app
 from app.models.checkpoint import ChainCheckpoint
-from app.models.query import Query
 from app.schemas.answer import AnswerPayload, NoAnswerReason
-from app.services.audit import append_audit_entry, sha256_text
+from app.services.audit import append_audit_entry, make_query
 from app.services.chain_monitor import export_checkpoint, latest_checkpoint, verify_and_checkpoint
 
 
@@ -63,7 +62,7 @@ async def forged(session: AsyncSession, seq: int | None = None):
 
 async def append_one(session: AsyncSession) -> int:
     question = f"a question {uuid.uuid4().hex[:8]}"
-    query = Query(actor_id="dr-001", text=question, text_hash=sha256_text(question), language="en")
+    query = make_query(actor_id="dr-001", text=question, language="en")
     session.add(query)
     await session.flush()
 

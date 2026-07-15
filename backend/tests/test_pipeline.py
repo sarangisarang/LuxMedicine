@@ -22,7 +22,7 @@ from app.models.document import Document, DocumentVersion, VersionStatus
 from app.models.query import Query
 from app.schemas.answer import NoAnswerReason
 from app.services.answering import ExtractionResult, SelectedQuote
-from app.services.audit import verify_chain
+from app.services.audit import salted_hash, verify_chain
 from app.services.pipeline import answer_query
 
 DIM = get_settings().embedding_dim
@@ -194,7 +194,12 @@ async def test_the_audit_records_everything_retrieved_not_only_what_was_quoted(
 
 async def test_the_question_is_stored_erasably_and_hashed_into_the_chain(session, embedder, corpus):
     """The GDPR boundary (#5) reached through the real flow: the text lives in `queries`
-    where it can be redacted; only its hash is in the chain."""
+    where it can be redacted; only its salted hash is in the chain.
+
+    This asserted a plain `sha256(question)` until #28 measured what that was worth —
+    an unsalted hash of a guessable question is a lookup key for it, 20 of 20 recovered
+    in 0.3 ms. The assertion below is now the inverse of what it used to be.
+    """
     question = "45yo male, reduced EF, on a beta blocker — target bisoprolol dose?"
     extractor = ScriptedExtractor([DOSE])
 
@@ -206,7 +211,11 @@ async def test_the_question_is_stored_erasably_and_hashed_into_the_chain(session
     row = (await session.execute(select(AuditLog).where(AuditLog.seq == answered.audit_seq))).scalar_one()
 
     assert query.text == question
-    assert row.query_hash == hashlib.sha256(question.encode()).hexdigest()
+    assert query.text_salt is not None, "an unsalted question is one that cannot be erased"
+    assert row.query_hash == salted_hash(query.text_salt, question)
+    assert row.query_hash != hashlib.sha256(question.encode()).hexdigest(), (
+        "a plain hash here would survive erasure as a working oracle for the question"
+    )
     assert question not in str(row.response), "the question must not leak into the response blob"
 
 

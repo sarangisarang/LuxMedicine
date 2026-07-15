@@ -15,10 +15,15 @@ class Query(Base):
     data and must be erasable on request. The audit chain must survive that erasure.
 
     Erasure is therefore *redaction, not deletion*: `text` is nulled and `redacted_at`
-    is stamped, while the row and its `text_hash` remain. Deleting the row instead
-    would force an UPDATE or DELETE on audit_log to clear the reference — which the
-    append-only trigger rejects. Redaction keeps both guarantees intact at once:
-    the content is gone, and the chain still proves which question was asked.
+    is stamped, while the row remains. Deleting the row instead would force an UPDATE or
+    DELETE on audit_log to clear the reference — which the append-only trigger rejects.
+
+    **`text_salt` is nulled too, and that is what makes the erasure real.** This docstring
+    used to end "the content is gone, and the chain still proves which question was
+    asked", and both halves cannot be true at once. `text_hash` was `sha256(text)`,
+    unsalted; clinical questions are enumerable, and 20 of 20 "erased" questions were
+    recovered from the surviving hash in 0.3 ms each. The hash *was* the content. See
+    migration 0010.
     """
 
     __tablename__ = "queries"
@@ -31,9 +36,20 @@ class Query(Base):
     # NULL once redacted under a GDPR erasure request.
     text: Mapped[str | None] = mapped_column(Text)
 
-    # sha256 of the original text. Survives redaction, so an audit row can still be
-    # matched to a question presented in evidence, without us retaining the question.
+    # sha256(text_salt || text). Survives redaction as bytes, because audit_log hashes
+    # it and audit_log cannot change — but once the salt is gone it is unverifiable, and
+    # that is deliberate rather than unfortunate. Someone holding the question can no
+    # longer confirm it was this one; neither can anyone guessing. Those were always the
+    # same capability.
     text_hash: Mapped[str] = mapped_column(String(64), index=True)
+
+    # 32 random bytes, hex. Never in audit_log — it has to live somewhere erasable, and
+    # audit_log is the one table that is not.
+    #
+    # NULL means one of two things and `redacted_at` tells them apart: erased (salt
+    # destroyed), or written before migration 0010 and never salted at all. Rows in the
+    # second group are permanently un-erasable: their hash is baked into the chain.
+    text_salt: Mapped[str | None] = mapped_column(String(64))
 
     language: Mapped[str | None] = mapped_column(String(16))
 

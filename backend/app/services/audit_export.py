@@ -79,11 +79,21 @@ class ExportedEntry:
     actor_id: str
     query_id: uuid.UUID
 
-    # None once erased under GDPR. The hash below still proves *which* question was
-    # asked when presented with a candidate — that is the whole point of hashing it
-    # rather than retaining it (#5).
+    # None once erased under GDPR.
     question: str | None
+
+    # Present always, useful only sometimes. It is sha256(salt || question), and once the
+    # question is erased the salt is destroyed with it — so this becomes 64 hex
+    # characters that nothing can be checked against, by us or by anyone.
+    #
+    # This used to be documented as proving "which question was asked when presented with
+    # a candidate ... without our having kept it". Both halves cannot hold at once, and
+    # measurement settled which one was false: unsalted, it recovered 20 of 20 clinical
+    # questions in 0.3 ms each. Being checkable by someone holding the question and being
+    # brute-forceable by someone guessing it are one property, not two. See 0010.
     question_hash: str
+    question_hash_is_verifiable: bool
+
     redacted_at: datetime | None
 
     model: str
@@ -106,6 +116,18 @@ class ExportedEntry:
     @property
     def question_is_erased(self) -> bool:
         return self.redacted_at is not None
+
+    @property
+    def what_the_hash_is_worth(self) -> str:
+        """Said in words, because a bare hash in an export invites the reader to assume
+        it means something. After erasure it does not, and the export is read by people
+        deciding whether to trust the trail."""
+        if self.question_hash_is_verifiable:
+            return "matches this row if you hold the question and the salt"
+        return (
+            "unverifiable: the question was erased and its salt destroyed with it. "
+            "Nobody can establish which question this was — that is what erasure means."
+        )
 
     @property
     def corpus_matches_the_record(self) -> bool:
@@ -297,6 +319,8 @@ def _render(
         query_id=row.query_id,
         question=query.text if query else None,
         question_hash=row.query_hash,
+        # The salt is the whole of it: no salt, nothing to check against.
+        question_hash_is_verifiable=bool(query and query.text_salt),
         redacted_at=query.redacted_at if query else None,
         model=row.model,
         prompt_hash=row.prompt_hash,

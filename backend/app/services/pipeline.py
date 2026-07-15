@@ -37,10 +37,9 @@ from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.query import Query
 from app.schemas.answer import AnswerPayload
 from app.services.answering import Extractor, assemble, render_passages
-from app.services.audit import append_audit_entry, sha256_text
+from app.services.audit import append_audit_entry, make_query
 from app.services.embedding import Embedder
 from app.services.retrieval import SearchHit, hybrid_search
 from app.services.validation import RejectedCitation, validate_answer
@@ -122,12 +121,9 @@ async def answer_query(
     # make the trail evidence of what we caught rather than of what we said.
     validated = validate_answer(answer.payload, {hit.chunk_id: hit.content for hit in hits})
 
-    query = Query(
-        actor_id=actor_id,
-        text=question,
-        text_hash=sha256_text(question),
-        language=language,
-    )
+    # make_query, not Query(...): the salt and the hash have to be produced together or
+    # the row is silently un-erasable. See services/audit.py.
+    query = make_query(actor_id=actor_id, text=question, language=language)
     session.add(query)
     await session.flush()
 

@@ -18,18 +18,19 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.models.audit import GENESIS_HASH, AuditLog
 from app.models.query import Query
 from app.schemas.answer import AnswerPayload, NoAnswerReason
-from app.services.audit import append_audit_entry, redact_query, sha256_text, verify_chain
+from app.models.erasure import LegalBasis
+from app.services.audit import append_audit_entry, make_query, redact_query, verify_chain
 
 
-async def make_query(session: AsyncSession, question: str = "Target dose of enalapril?") -> Query:
-    query = Query(actor_id="dr-001", text=question, text_hash=sha256_text(question), language="en")
+async def stored_query(session: AsyncSession, question: str = "Target dose of enalapril?") -> Query:
+    query = make_query(actor_id="dr-001", text=question, language="en")
     session.add(query)
     await session.flush()
     return query
 
 
 async def append_one(session: AsyncSession, question: str = "Target dose of enalapril?") -> AuditLog:
-    query = await make_query(session, question)
+    query = await stored_query(session, question)
     return await append_audit_entry(
         session,
         actor_id=query.actor_id,
@@ -148,7 +149,7 @@ async def test_redaction_clears_text_and_leaves_the_chain_intact(session):
     row instead would force an UPDATE on audit_log that the trigger rejects.
     """
     question = "45yo male, reduced EF, already on ACE-inhibitor — target dose?"
-    query = await make_query(session, question)
+    query = await stored_query(session, question)
     original_hash = query.text_hash
 
     await append_audit_entry(
@@ -162,7 +163,7 @@ async def test_redaction_clears_text_and_leaves_the_chain_intact(session):
     )
     await session.commit()
 
-    await redact_query(session, query.id)
+    await redact_query(session, query.id, erased_by="dpo-001", legal_basis=LegalBasis.CONSENT_WITHDRAWN)
     await session.commit()
 
     refreshed = (await session.execute(select(Query).where(Query.id == query.id))).scalar_one()
@@ -177,14 +178,14 @@ async def test_redaction_clears_text_and_leaves_the_chain_intact(session):
 async def test_redaction_is_idempotent(session):
     """A second erasure request must not overwrite the first one's timestamp — the
     record of when we complied is itself worth keeping."""
-    query = await make_query(session, "another question")
+    query = await stored_query(session, "another question")
     await session.commit()
 
-    await redact_query(session, query.id)
+    await redact_query(session, query.id, erased_by="dpo-001", legal_basis=LegalBasis.CONSENT_WITHDRAWN)
     await session.commit()
     first_redacted_at = query.redacted_at
 
-    await redact_query(session, query.id)
+    await redact_query(session, query.id, erased_by="dpo-001", legal_basis=LegalBasis.CONSENT_WITHDRAWN)
     await session.commit()
     assert query.redacted_at == first_redacted_at
 
