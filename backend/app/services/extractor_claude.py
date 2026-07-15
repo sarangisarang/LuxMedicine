@@ -1,0 +1,131 @@
+"""The Claude adapter for #18.
+
+**Unproven.** Nothing here has been run — it needs an API key and it spends money, and
+neither is mine to decide. Everything else in this project was measured before it was
+trusted; this is the exception, and it is the exception on purpose. The embedder set the
+precedent (tests/test_embedding_real.py) — run this against the real API before trusting
+a clinician's question to it.
+
+Optional extra (`pip install -e ".[llm]"`), imported lazily, exactly like the embedder.
+The `Extractor` protocol is what the rest of the system depends on; this file is one
+implementation of it and can be replaced without touching anything else.
+
+**Data residency is unresolved and blocks nothing here.** #6 chose a self-hosted
+embedding model so clinical text stays in the EU. The same question applies to this call
+and the answer is not obvious: `inference_geo` is a first-party request parameter (Opus
+4.6+, not available on Bedrock or Vertex) that pins where inference runs, and
+`usage.inference_geo` reports where it actually ran — which is the right lever. The
+accepted values are not documented in what I have, so the parameter is exposed here as
+an unset option rather than guessed at. Confirm the value before any real deployment;
+until then this runs wherever Anthropic routes it.
+"""
+
+from __future__ import annotations
+
+from app.services.answering import ExtractionResult
+
+DEFAULT_MODEL = "claude-opus-4-8"
+
+# Non-streaming default. Selections are short — a dozen quotes is well under this — and
+# streaming would buy nothing for a call whose entire output is consumed at once.
+DEFAULT_MAX_TOKENS = 16000
+
+SYSTEM_PROMPT = """\
+You are the extraction step of a clinical search engine. You do not advise, diagnose, \
+recommend, or summarise. You select spans of text.
+
+You will be given a clinician's question and numbered passages from clinical guidelines. \
+Return the spans of those passages that answer the question, each with the number of the \
+passage it came from.
+
+Rules, in order of importance:
+
+1. Every quote must be copied character-for-character from the passage you cite. Do not \
+paraphrase, do not correct spelling or grammar, do not normalise units, do not join \
+distant spans with an ellipsis. A quote that is not present verbatim in its passage is \
+discarded, so an inexact quote is a lost answer, not a helpful approximation.
+
+2. Two separate spans are two entries, even from the same passage. A span is contiguous.
+
+3. Quote only what answers the question. If a passage qualifies a dose with a condition, \
+the qualification is part of the answer — include it in the same span rather than \
+quoting the dose alone.
+
+4. If none of the passages answer the question, return no quotes. An empty answer is \
+correct and expected. A quote from a passage that does not answer the question is worse \
+than no answer, because the clinician cannot tell the difference.
+
+5. Never write anything that is not a quote. You have no field for commentary and no \
+reason to want one.\
+"""
+
+
+def render_prompt(question: str, passages: list[str]) -> str:
+    """The user turn: the question, then the numbered passages.
+
+    The numbering is the only handle the model has on a passage — see answering.py on
+    why it is an integer rather than the chunk's UUID.
+    """
+    numbered = "\n\n".join(f"[{i}]\n{text}" for i, text in enumerate(passages, start=1))
+    return f"Question:\n{question}\n\nPassages:\n\n{numbered}"
+
+
+class ClaudeExtractor:
+    """Selects passages and spans via the Claude API.
+
+    Requires the `llm` extra. See the module docstring: this has not been run.
+    """
+
+    def __init__(
+        self,
+        model: str = DEFAULT_MODEL,
+        *,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
+        effort: str = "high",
+        inference_geo: str | None = None,
+    ) -> None:
+        try:
+            import anthropic
+        except ImportError as exc:  # pragma: no cover — depends on the extra
+            raise ImportError(
+                'ClaudeExtractor needs the "llm" extra: pip install -e ".[llm]"'
+            ) from exc
+
+        self._client = anthropic.Anthropic()
+        self._anthropic = anthropic
+        self.model = model
+        self._max_tokens = max_tokens
+        self._effort = effort
+
+        # Pins where inference runs. Left unset by default because the accepted values
+        # are not established here and a wrong guess would silently route clinical text
+        # somewhere it must not go — see the module docstring.
+        self._inference_geo = inference_geo
+
+    def extract(self, question: str, passages: list[str]) -> ExtractionResult | None:
+        if not passages:
+            return ExtractionResult(quotes=[])
+
+        request: dict = {
+            "model": self.model,
+            "max_tokens": self._max_tokens,
+            "system": SYSTEM_PROMPT,
+            # Adaptive must be set explicitly on Opus 4.8 — omitting the field runs
+            # without thinking at all.
+            "thinking": {"type": "adaptive"},
+            "output_config": {"effort": self._effort},
+            "messages": [{"role": "user", "content": render_prompt(question, passages)}],
+        }
+        if self._inference_geo is not None:
+            request["inference_geo"] = self._inference_geo
+
+        response = self._client.messages.parse(output_format=ExtractionResult, **request)
+
+        if response.stop_reason == "refusal":
+            # A clinical question can trip a safety classifier, and on a refusal the
+            # output need not match the schema. Returning None routes this to
+            # SOURCES_DO_NOT_ANSWER rather than crashing — a clinician sees "these
+            # passages do not answer", which is true, instead of a 500.
+            return None
+
+        return response.parsed_output

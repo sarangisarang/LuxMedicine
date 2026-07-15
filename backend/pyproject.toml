@@ -30,6 +30,12 @@ dependencies = [
 # this extra is present.
 embeddings = ["sentence-transformers>=3.0"]
 
+# The extraction step (#18). Kept out of the default install for the same reason as the
+# embedder — and for one more: it needs an API key and it costs money per call, so
+# nothing should reach for it by accident. app/services/extractor_claude.py has NOT been
+# run; see its docstring.
+llm = ["anthropic>=0.116"]
+
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
