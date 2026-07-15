@@ -102,9 +102,22 @@ and spends money per call. Everything else here was measured before it was trust
 file is the exception and says so. Run it before trusting a clinician's question to it —
 `tests/test_embedding_real.py` is the precedent.
 
-**`drug_aliases` is empty.** The mechanism works and is tested; the data does not exist.
-Brand→generic mappings come from national drug registries, and a wrong one answers
-confidently about the wrong drug — so every row needs a `source` and a human behind it.
+**`drug_aliases` is empty.** The mechanism works and is tested; the data does not exist,
+and it cannot be invented — brand names are assigned per market, they change, and a wrong
+one answers confidently about the wrong drug. Load from a registry:
+
+```bash
+python -m app.cli.load_aliases registry.csv --source "…, 2026-06" --dry-run
+```
+
+The loader refuses to resolve a conflict: a brand that means two different drugs is a
+question for a pharmacist, not a merge strategy. It exits non-zero and writes nothing for
+those rows.
+
+**One brand means one drug, globally.** `UNIQUE(alias)` cannot express "this brand is
+enalapril in one country and something else in another" — a real phenomenon, and the
+schema has no room for it. Fine while a deployment serves one market; it breaks at #31,
+where whichever mapping loaded first would silently win for every clinic.
 
 **Conflict detection (#24, #25) and a frontend (#32–#36) are absent.** Deliberately
 deferred: scanned-PDF OCR (#13), voice input, multimodal RAG, FHIR/HL7.
