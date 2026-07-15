@@ -24,6 +24,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Kept out of the default install: torch plus multilingual-e5-large is several GB, and
+# the API, the tests, and CI never load the model — tests use a deterministic fake.
+# The real embedder is exercised by tests/test_embedding_real.py, which skips unless
+# this extra is present.
+embeddings = ["sentence-transformers>=3.0"]
+
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
@@ -45,3 +51,9 @@ target-version = "py312"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+markers = [
+    # Loads the real multilingual-e5-large (~2.2 GB, minutes on CPU). Skipped
+    # automatically when the 'embeddings' extra is absent, which is how CI avoids it.
+    # Locally: -m "not slow" to skip, and run it before trusting a corpus to the model.
+    "slow: exercises the real embedding model",
+]

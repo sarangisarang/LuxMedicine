@@ -10,6 +10,11 @@ from app.db.base import Base
 
 
 class VersionStatus(str, enum.Enum):
+    # Registered, chunks not yet committed. Retrieval never looks here: a version with
+    # no chunks would otherwise be silently unfindable, and "no guidance found" would be
+    # indistinguishable from "still processing".
+    PENDING = "pending"
+
     ACTIVE = "active"
     ARCHIVED = "archived"
 
@@ -65,7 +70,8 @@ class DocumentVersion(Base):
             native_enum=True,
             values_callable=lambda enum_cls: [member.value for member in enum_cls],
         ),
-        default=VersionStatus.ACTIVE,
+        default=VersionStatus.PENDING,
+        server_default="pending",
         index=True,
     )
 

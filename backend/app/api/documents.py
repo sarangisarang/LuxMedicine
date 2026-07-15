@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.vocabulary import IssuingOrg
 from app.db.session import get_session
+from app.models.document import VersionStatus
 from app.services import storage
 from app.services.ingestion import (
     DuplicateFileError,
@@ -30,6 +31,11 @@ class VersionCreated(BaseModel):
     version_label: str
     file_hash: str
     size_bytes: int
+
+    # Always "pending" here. Upload registers; indexing (#10) is a separate, slower step
+    # and only it can make a version active. Reported so a caller is never left assuming
+    # an accepted upload is a searchable one.
+    status: VersionStatus
 
 
 @router.post(
@@ -85,6 +91,7 @@ async def create_version(
         )
         document_id = version.document_id
         version_id = version.id
+        version_status = version.status
 
         # Only now, with the row about to commit, does the file enter the store.
         storage.commit_staged(staged, root=settings.storage_root)
@@ -130,4 +137,5 @@ async def create_version(
         version_label=version_label,
         file_hash=staged.file_hash,
         size_bytes=staged.size,
+        status=version_status,
     )

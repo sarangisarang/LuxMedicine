@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.core.config import get_settings
 from app.db.session import get_session
 from app.main import app
-from app.models.document import Document, DocumentVersion
+from app.models.document import Document, DocumentVersion, VersionStatus
 
 
 def pdf_bytes(marker: str = "esc-2021") -> bytes:
@@ -87,8 +87,13 @@ async def test_upload_registers_document_and_version(client, session):
             select(DocumentVersion).where(DocumentVersion.id == uuid.UUID(payload["document_version_id"]))
         )
     ).scalar_one()
-    assert version.status.value == "active"
     assert version.superseded_by is None
+
+    # Pending, not active: upload registers, indexing (#10) activates. An accepted
+    # upload is not yet a searchable one, and the API says so rather than letting the
+    # caller assume otherwise.
+    assert version.status is VersionStatus.PENDING
+    assert payload["status"] == "pending"
 
 
 async def test_the_pdf_is_stored_at_its_content_address(client, session):
