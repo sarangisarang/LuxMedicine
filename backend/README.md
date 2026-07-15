@@ -74,8 +74,13 @@ proves nothing.
 ## Tests
 
 ```bash
-./.venv/Scripts/python.exe -m pytest tests/ -q
+./.venv/Scripts/pytest.exe -q
 ```
+
+**Bare `pytest`, not `python -m pytest`.** They are not interchangeable: the module form
+puts the working directory on `sys.path` and the bare form does not, so a broken import
+passes under one and fails under the other. CI runs the bare form. Running the module
+form locally once hid an `ImportError` from every local run until CI caught it.
 
 `tests/test_audit_chain.py` runs without a database and pins the chain's sensitivity:
 every hashed field, plus chunk-id *order*, must move `row_hash`.
