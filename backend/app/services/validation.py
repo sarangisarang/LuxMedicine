@@ -36,7 +36,7 @@ import unicodedata
 import uuid
 from dataclasses import dataclass, field
 
-from app.schemas.answer import AnswerPayload, Citation, SourceGroup
+from app.schemas.answer import AnswerPayload, Citation, NoAnswerReason, SourceGroup
 
 _WHITESPACE = re.compile(r"\s+")
 
@@ -105,8 +105,21 @@ def validate_answer(payload: AnswerPayload, chunks: dict[uuid.UUID, str]) -> Val
         if kept:
             surviving_groups.append(group.model_copy(update={"citations": kept}))
 
-    cleaned = payload.model_copy(
-        update={"groups": surviving_groups, "rejected_citations": len(rejected)}
+    # When validation empties the answer, say so — and say it was *our* failure, not the
+    # corpus's. Reporting a fabrication as "no guidance found" would be the quietest lie
+    # available: the clinician would conclude the guidelines are silent on their question.
+    reason = payload.no_answer_reason
+    if not surviving_groups and reason is None:
+        reason = NoAnswerReason.VERIFICATION_FAILED if rejected else NoAnswerReason.SOURCES_DO_NOT_ANSWER
+
+    # Rebuilt rather than model_copy'd: model_copy skips validation, so an empty answer
+    # with no reason would slip past the invariant that exists to catch exactly this.
+    cleaned = AnswerPayload(
+        query_language=payload.query_language,
+        groups=surviving_groups,
+        conflicts=payload.conflicts if surviving_groups else [],
+        no_answer_reason=reason,
+        rejected_citations=len(rejected),
     )
     return ValidationResult(payload=cleaned, rejected=rejected)
 

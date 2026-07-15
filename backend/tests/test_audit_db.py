@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.models.audit import GENESIS_HASH, AuditLog
 from app.models.query import Query
-from app.schemas.answer import AnswerPayload
+from app.schemas.answer import AnswerPayload, NoAnswerReason
 from app.services.audit import append_audit_entry, redact_query, sha256_text, verify_chain
 
 
@@ -37,7 +37,7 @@ async def append_one(session: AsyncSession, question: str = "Target dose of enal
         retrieved_chunk_ids=[uuid.uuid4()],
         prompt="extract dosing statements from the retrieved passages",
         model="claude-opus-4-8",
-        response=AnswerPayload(query_language="en", no_answer_reason="fixture"),
+        response=AnswerPayload(query_language="en", no_answer_reason=NoAnswerReason.NO_RELEVANT_SOURCES),
     )
 
 
@@ -158,7 +158,7 @@ async def test_redaction_clears_text_and_leaves_the_chain_intact(session):
         retrieved_chunk_ids=[uuid.uuid4()],
         prompt="extract",
         model="claude-opus-4-8",
-        response=AnswerPayload(query_language="en", no_answer_reason="fixture"),
+        response=AnswerPayload(query_language="en", no_answer_reason=NoAnswerReason.NO_RELEVANT_SOURCES),
     )
     await session.commit()
 

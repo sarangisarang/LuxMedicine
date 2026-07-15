@@ -8,7 +8,7 @@ import uuid
 
 import pytest
 
-from app.schemas.answer import AnswerPayload, Citation, SourceGroup
+from app.schemas.answer import AnswerPayload, Citation, NoAnswerReason, SourceGroup
 from app.services.validation import normalise, validate_answer
 
 CHUNK_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
@@ -199,10 +199,12 @@ def test_a_clean_answer_reports_zero_rejections():
 
 def test_an_empty_answer_validates():
     """#20's path. No groups, nothing to check, and no reason to fail."""
-    result = validate_answer(AnswerPayload(no_answer_reason="the corpus does not cover this"), {})
+    result = validate_answer(
+        AnswerPayload(no_answer_reason=NoAnswerReason.NO_RELEVANT_SOURCES), {}
+    )
 
     assert result.is_clean
-    assert result.payload.no_answer_reason
+    assert result.payload.no_answer_reason is NoAnswerReason.NO_RELEVANT_SOURCES
 
 
 # --- the schema itself -------------------------------------------------------------
@@ -246,3 +248,57 @@ def test_the_schema_has_no_field_for_a_claim():
         "is_superseded",
         "superseding_version_label",
     }
+
+
+# --- #20: an empty answer must explain itself --------------------------------------
+
+
+def test_an_answer_cannot_be_blank_without_a_reason():
+    """The invariant. Otherwise the worst outcome is the easiest to reach: a clinician
+    sees a blank result and cannot tell "the guidelines are silent" from "we broke"."""
+    with pytest.raises(ValueError, match="no_answer_reason"):
+        AnswerPayload(groups=[])
+
+
+def test_the_reason_is_a_closed_set_not_prose():
+    """Free text here would be the ExtractedStatement.text hole again — a model asked to
+    explain an empty answer writes "no guidance found, though enalapril is generally
+    used", which is advice arriving through the field meant to say there is none."""
+    with pytest.raises(ValueError):
+        AnswerPayload(no_answer_reason="no guidance found, though enalapril is generally used")
+
+
+def test_rejecting_everything_reports_our_failure_not_the_corpus_s():
+    """The distinction that must never blur. "The corpus has nothing" is a fact about the
+    guidelines; "the quotes did not verify" is a fact about us malfunctioning. Reporting
+    the second as the first would tell a clinician the guidelines are silent on their
+    question — the quietest lie this system could tell."""
+    result = validate_answer(payload(citation("entirely invented")), CHUNKS)
+
+    assert result.payload.groups == []
+    assert result.payload.no_answer_reason is NoAnswerReason.VERIFICATION_FAILED
+    assert result.payload.no_answer_reason is not NoAnswerReason.NO_RELEVANT_SOURCES
+
+
+def test_validation_cannot_produce_an_unexplained_blank():
+    """model_copy skips validation, so rebuilding the payload is what keeps the invariant
+    reachable. If this ever regresses, the schema guard is bypassed rather than broken —
+    which is worse, because everything still looks green."""
+    result = validate_answer(payload(citation("invented")), CHUNKS)
+
+    # Round-trips through validation: proves the object it returns is actually valid.
+    AnswerPayload.model_validate(result.payload.model_dump())
+
+
+def test_conflicts_do_not_survive_an_emptied_answer():
+    """A conflict references groups. Keeping one when every group was dropped would
+    point at sources the answer no longer contains."""
+    result = validate_answer(payload(citation("invented")), CHUNKS)
+    assert result.payload.conflicts == []
+
+
+def test_a_surviving_answer_needs_no_reason():
+    result = validate_answer(payload(citation("Monitoring of renal function is recommended")), CHUNKS)
+
+    assert result.payload.groups
+    assert result.payload.no_answer_reason is None, "there is an answer; nothing to explain"

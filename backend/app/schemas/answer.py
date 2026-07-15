@@ -34,8 +34,36 @@ not a limitation.
 """
 
 import uuid
+from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+
+class NoAnswerReason(StrEnum):
+    """Why nothing is being shown — a closed set, not prose.
+
+    Free text here would be the same hole that removed `ExtractedStatement.text`: a
+    model asked to explain itself in an empty answer will write "no guidance found,
+    though enalapril is generally used" — advice, smuggled through the one field that
+    was meant to say there is none.
+
+    An enum leaves nothing to write into. The wording a clinician reads lives in the UI,
+    where a human chose it.
+
+    The three are kept apart because conflating them tells a clinician the wrong thing.
+    "The corpus has nothing on this" is a fact about the guidelines. "The answer could
+    not be verified" is a fact about us malfunctioning — and reporting our own failure as
+    an absence of guidance would be the quietest lie this system could tell.
+    """
+
+    # Retrieval returned nothing at all. The corpus does not cover the question.
+    NO_RELEVANT_SOURCES = "no_relevant_sources"
+
+    # Passages were retrieved and read; none of them answer the question.
+    SOURCES_DO_NOT_ANSWER = "sources_do_not_answer"
+
+    # Quotes came back and #19 rejected them. This is our fault, not the corpus's.
+    VERIFICATION_FAILED = "verification_failed"
 
 
 class Citation(BaseModel):
@@ -125,12 +153,30 @@ class AnswerPayload(BaseModel):
     groups: list[SourceGroup] = Field(default_factory=list)
     conflicts: list[ConflictFinding] = Field(default_factory=list)
 
-    # Populated when the corpus cannot answer. An empty answer is a valid outcome;
-    # a fabricated one is not (#20).
-    no_answer_reason: str | None = None
+    # Why nothing is shown. An empty answer is a valid clinical outcome; a fabricated one
+    # is a safety incident, so this path must be as easy to take as any other (#20).
+    no_answer_reason: NoAnswerReason | None = None
 
     # Quotes rejected by #19 as not appearing in the chunk they cited. Reported, not
     # silently dropped: a clinician seeing four quotes cannot tell that a fifth was
     # discarded, and "the model fabricated something just now" is exactly the kind of
     # thing that must not be invisible.
     rejected_citations: int = 0
+
+    @model_validator(mode="after")
+    def an_empty_answer_must_say_why(self) -> "AnswerPayload":
+        """No groups and no reason is unrepresentable.
+
+        Otherwise the worst outcome is the easiest one to reach: a clinician is shown a
+        blank result and cannot tell "the guidelines do not cover this" from "we broke".
+        Every other silent-failure guard in this system exists for the same reason —
+        pending versions (#10), scanned PDFs (#8), rejected quotes above.
+        """
+        if not self.groups and self.no_answer_reason is None:
+            raise ValueError(
+                "an answer with no groups must carry a no_answer_reason — a blank result "
+                "with no explanation cannot be distinguished from a malfunction"
+            )
+        if not self.groups and self.conflicts:
+            raise ValueError("conflicts reference groups; there are none")
+        return self
