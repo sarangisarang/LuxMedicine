@@ -15,15 +15,34 @@ and extended thinking pins temperature at 1. Gemini exposes it, and this is extr
 there is no creative latitude to want. Copying a span is not a task with a distribution
 worth sampling from.
 
-**Data residency is unresolved, and here it is louder than it was for Claude.** #6
-self-hosts the embedding model *specifically* so clinical text stays in the EU, and #30
-self-hosts Keycloak because sending a clinician's identity to a US processor while
-keeping their question in the EU would be a contradiction. This call sends the question
-*and* the guideline passages — more sensitive than the identity that decision turned on.
-The Gemini Developer API does not offer the regional pinning that would resolve it;
-Vertex AI does, and moving there is a client change rather than a rewrite. Until that is
-decided, this is fit for measurement against invented fixtures and not for a clinician's
-question.
+**Data residency, and why it is asserted rather than configured.** #6 self-hosts the
+embedding model *specifically* so clinical text stays in the EU, and #30 self-hosts
+Keycloak because sending a clinician's identity to a US processor while keeping their
+question in the EU would be a contradiction. This call sends the question *and* the
+guideline passages, which is more sensitive than the identity that decision turned on.
+
+Two ways to reach Gemini, and only one can keep that promise. Both measured:
+
+- **The Developer API** (an API key). The resolved base URL is
+  `generativelanguage.googleapis.com` — no regional pinning exists on this path at all.
+- **Vertex AI** with a project and a *regional* location. The resolved base URL becomes
+  `europe-west3-aiplatform.googleapis.com`, and Google commits to ML processing staying
+  in the EU for regional endpoints. The *global* Vertex endpoint does not: its own
+  documentation says you "can't control or know which region your ML processing requests
+  are sent to".
+
+**So `endpoint` reads the URL the SDK actually resolved, not the region that was asked
+for.** google-gemini/gemini-cli#27984 (open, filed June 2026) is precisely that gap: the
+JavaScript SDK silently drops the location when an API key is present, routes to the
+global endpoint, and the config keeps displaying the region — a green dashboard over data
+in another jurisdiction. The Python SDK refuses that combination outright (measured:
+`ValueError: Project/location and API key are mutually exclusive`), which is the right
+behaviour and is not a reason to trust a config instead of a URL.
+
+Same shape as every other bug this project has turned up: HTTP 200 on a broken chain, a
+mutation harness reporting SURVIVED for a mutant that would not compile, a verifier
+reading its own cache, a superuser silently skipping every RLS policy. A mechanism that
+looks like success when it is absent.
 """
 
 from __future__ import annotations
@@ -56,6 +75,26 @@ DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview")
 DEFAULT_TIMEOUT_MS = 60_000
 DEFAULT_ATTEMPTS = 2
 
+# Vertex regional endpoints whose ML processing Google places in the EU. An explicit list,
+# not a `"europe" in url` test: a substring check passes for any host that happens to
+# contain the word, and a typo'd region would sail through it. A region missing from this
+# list does not mean it is not European — it means nobody checked, and for this purpose
+# those are the same answer.
+EU_PROCESSING_HOSTS = (
+    "europe-west1-aiplatform.googleapis.com",
+    "europe-west3-aiplatform.googleapis.com",
+    "europe-west4-aiplatform.googleapis.com",
+    "europe-west8-aiplatform.googleapis.com",
+    "europe-west9-aiplatform.googleapis.com",
+    "europe-north1-aiplatform.googleapis.com",
+    "europe-central2-aiplatform.googleapis.com",
+    "europe-southwest1-aiplatform.googleapis.com",
+)
+
+
+class ProcessingLeavesTheEU(RuntimeError):
+    """The resolved endpoint is not one that keeps ML processing in the EU."""
+
 
 class GeminiExtractor:
     """Selects passages and spans via the Gemini API.
@@ -71,6 +110,8 @@ class GeminiExtractor:
         max_output_tokens: int = 16000,
         timeout_ms: int = DEFAULT_TIMEOUT_MS,
         attempts: int = DEFAULT_ATTEMPTS,
+        vertex_project: str | None = None,
+        vertex_location: str | None = None,
     ) -> None:
         try:
             from google import genai
@@ -80,16 +121,61 @@ class GeminiExtractor:
                 "Note the package is google-genai, not the retired google-generativeai."
             ) from exc
 
-        # Reads GEMINI_API_KEY (or GOOGLE_API_KEY) from the environment. Never a
-        # constructor argument: a key passed as a parameter is a key that ends up in a
-        # traceback, a log line, or a test fixture.
-        self._client = genai.Client()
+        project = vertex_project or os.environ.get("GOOGLE_CLOUD_PROJECT") or None
+        location = vertex_location or os.environ.get("GOOGLE_CLOUD_LOCATION") or None
+
+        if project:
+            # Vertex, with a region. Needs real credentials — ADC or a service account.
+            # An API key is not accepted on this path and the SDK says so rather than
+            # quietly going global, which is the failure #27984 describes in the JS SDK.
+            self._client = genai.Client(vertexai=True, project=project, location=location)
+        else:
+            # The Developer API. Reads GEMINI_API_KEY (or GOOGLE_API_KEY) from the
+            # environment — never a constructor argument, because a key passed as a
+            # parameter is a key that ends up in a traceback, a log line, or a fixture.
+            # There is no regional pinning on this path; see the module docstring.
+            self._client = genai.Client()
         self._genai = genai
         self.model = model or DEFAULT_MODEL
         self._temperature = temperature
         self._max_output_tokens = max_output_tokens
         self._timeout_ms = timeout_ms
         self._attempts = attempts
+
+    @property
+    def endpoint(self) -> str:
+        """The base URL the SDK actually resolved — not the region that was requested.
+
+        The entire point. #27984 is a config that says europe-west3 and a client that
+        talks to the global endpoint; reading the URL back is the only way to know which
+        of the two you have.
+        """
+        return self._client._api_client._http_options.base_url or ""
+
+    @property
+    def processes_in_eu(self) -> bool:
+        host = self.endpoint.removeprefix("https://").removeprefix("http://").rstrip("/")
+        return host in EU_PROCESSING_HOSTS
+
+    def refuse_unless_eu_processing(self) -> None:
+        """What a deployment calls before handing this a clinician's question.
+
+        Deliberately not called from __init__. Constructing an extractor to *measure* it
+        against invented fixtures is legitimate, and refusing at construction would mean
+        the only way to test the thing is to already be compliant. The refusal belongs at
+        the boundary where real clinical text enters — a deployment's decision to wire up.
+        This only makes the fact checkable.
+        """
+        if not self.processes_in_eu:
+            raise ProcessingLeavesTheEU(
+                f"resolved endpoint is {self.endpoint!r}, which is not a Vertex regional "
+                "endpoint that keeps ML processing in the EU. #6 self-hosts the embedding "
+                "model so clinical text stays in the EU; sending the question and the "
+                "guideline passages elsewhere contradicts it. Set GOOGLE_CLOUD_PROJECT "
+                "and GOOGLE_CLOUD_LOCATION to a European region, with real credentials — "
+                "an API key routes to the global endpoint, where Google's own "
+                "documentation says you cannot know where processing happens."
+            )
 
     def extract(self, question: str, passages: list[str]) -> ExtractionResult | None:
         if not passages:
