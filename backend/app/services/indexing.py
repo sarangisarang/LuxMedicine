@@ -15,7 +15,7 @@ same committed transaction, so "reachable" and "complete" cannot come apart.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from sqlalchemy import func, insert, select
@@ -25,7 +25,7 @@ from app.models.chunk import Chunk
 from app.models.document import DocumentVersion, VersionStatus
 from app.services.chunking import chunk_document
 from app.services.embedding import Embedder
-from app.services.extraction import extract_pdf
+from app.services.extraction import UNRESOLVED_GLYPH, extract_pdf
 
 # Rows per executemany. Vectors are 1024 floats each, so a whole guideline in one
 # statement makes for a very large packet; batching keeps memory and the wire sane
@@ -57,6 +57,12 @@ class IndexResult:
     pages: int
     empty_pages: list[int]
 
+    # Chunks dropped for carrying glyphs the font never named (#41). A count of zero and
+    # a count of forty produce the same corpus from the outside — one just quietly has
+    # less in it. Surfaced so an operator sees the difference before a clinician does.
+    rejected_chunks: int = 0
+    damaged_pages: list[int] = field(default_factory=list)
+
 
 async def index_version(
     session: AsyncSession,
@@ -81,6 +87,34 @@ async def index_version(
 
     if not chunks:
         raise EmptyExtractionError(f"version {version_id}: extraction produced no chunks")
+
+    # #41. A chunk whose glyphs the font never named must not reach a clinician.
+    #
+    # Not because it is ugly — because it is *wrong* and nothing downstream can tell.
+    # Measured on KDIGO 2012 CKD: "141(cid:2)min(SCr/k,1)a(cid:2)max(SCr/k,1)(cid:3)1.209"
+    # is the CKD-EPI equation with every multiplication sign and the minus deleted. The
+    # model is handed the chunk, never the PDF, so quoting that faithfully passes #19 —
+    # the quote really is a substring of the chunk. #19 validates quotes against chunks;
+    # this is the only place anything validates a chunk against its source.
+    #
+    # Dropped per chunk rather than per document: 18 damaged pages out of 163 is a real
+    # guideline that mostly extracted cleanly, and refusing all of it loses 145 good pages.
+    #
+    # Dropped *loudly*, though. A silently skipped chunk and a silently written corrupt one
+    # produce the same sentence for the clinician — "no guidance found" — and #20 exists
+    # because those must never be the same output. The result carries what was dropped and
+    # which pages it came from, so a human can open the PDF at that page and decide.
+    kept, rejected = [], []
+    for chunk in chunks:
+        (rejected if UNRESOLVED_GLYPH.search(chunk.text) else kept).append(chunk)
+
+    if not kept:
+        raise EmptyExtractionError(
+            f"version {version_id}: every chunk carries unresolved glyphs — the text layer "
+            "names no characters for this font, so there is nothing here to quote (#41)"
+        )
+
+    chunks = kept
 
     # One call, batched internally by the embedder. Passing every chunk at once lets it
     # pack full batches; feeding it chunk by chunk would waste most of each one.
@@ -114,6 +148,8 @@ async def index_version(
         chunks_written=len(rows),
         pages=len(document.pages),
         empty_pages=document.empty_pages,
+        rejected_chunks=len(rejected),
+        damaged_pages=document.damaged_pages,
     )
 
 

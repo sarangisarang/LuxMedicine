@@ -37,7 +37,8 @@ from __future__ import annotations
 import unicodedata
 from bisect import bisect_right
 from collections import Counter
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pdfplumber
@@ -46,6 +47,23 @@ import pdfplumber
 # the gap resolves to the page before it, which is where its text actually came from.
 PAGE_SEPARATOR = "\n\n"
 LINE_SEPARATOR = "\n"
+
+
+# pdfplumber's placeholder for a glyph whose font declares no ToUnicode mapping. The PDF
+# says "draw glyph N from this font" and never says which character N is, so the meaning
+# is not in the text layer for anything to extract. Measured on KDIGO 2012 CKD (#41): 278
+# of these across 18 of 163 pages, all from one embedded symbol font, and every one of
+# them was a multiplication sign or a minus inside a dosing formula.
+UNRESOLVED_GLYPH = re.compile(r"\(cid:\d+\)")
+
+
+@dataclass(frozen=True)
+class GlyphDamage:
+    """Unresolved glyphs on one line, and where to find them."""
+
+    page: int
+    line_text: str
+    count: int
 
 
 class NoTextLayerError(Exception):
@@ -94,6 +112,7 @@ class ExtractedDocument:
     lines: list[Line]
     empty_pages: list[int]
 
+
     # Modal character size across the document — this document's body text.
     #
     # Self-calibrating on purpose. Absolute thresholds would need tuning per publisher
@@ -101,6 +120,23 @@ class ExtractedDocument:
     # again), and a threshold that needs tuning is a threshold that is wrong on the
     # document nobody tested. Every document declares its own baseline instead.
     body_font_size: float
+
+    # Lines whose glyphs the font could not name. Reported rather than raised: 18 damaged
+    # pages out of 163 is a real guideline that mostly extracted fine, and throwing it all
+    # away would lose 145 good pages. The caller decides — but it cannot *not* be told,
+    # which is the whole point (#41).
+    #
+    # The damage is invisible downstream: #19 checks the quote against the chunk, and the
+    # chunk is what is wrong. A corrupted formula quoted character-for-character passes
+    # every check the system has.
+    glyph_damage: list[GlyphDamage] = field(default_factory=list)
+
+    @property
+    def damaged_pages(self) -> list[int]:
+        return sorted({d.page for d in self.glyph_damage})
+
+    def damage_ratio(self, page_count: int) -> float:
+        return len(self.damaged_pages) / page_count if page_count else 0.0
 
     def pages_for_span(self, start: int, end: int) -> tuple[int, int]:
         """Resolve a [start, end) span of `text` to the page range it covers.
@@ -152,6 +188,7 @@ def extract_pdf(path: Path) -> ExtractedDocument:
     pages: list[PageText] = []
     lines: list[Line] = []
     empty_pages: list[int] = []
+    glyph_damage: list[GlyphDamage] = []
     all_char_sizes: list[float] = []
     cursor = 0
 
@@ -174,6 +211,12 @@ def extract_pdf(path: Path) -> ExtractedDocument:
             for raw, text in zip(raw_lines, page_line_texts, strict=True):
                 sizes = [round(char["size"], 1) for char in raw["chars"]]
                 all_char_sizes.extend(sizes)
+
+                unresolved = UNRESOLVED_GLYPH.findall(text)
+                if unresolved:
+                    glyph_damage.append(
+                        GlyphDamage(page=index, line_text=text, count=len(unresolved))
+                    )
 
                 lines.append(
                     Line(
@@ -205,5 +248,6 @@ def extract_pdf(path: Path) -> ExtractedDocument:
         pages=pages,
         lines=lines,
         empty_pages=empty_pages,
+        glyph_damage=glyph_damage,
         body_font_size=_modal_size(all_char_sizes),
     )
