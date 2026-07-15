@@ -18,7 +18,17 @@ down_revision: str | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-EMBEDDING_DIM = get_settings().embedding_dim
+# Pinned literal, deliberately NOT read from settings. A migration is a historical
+# record of what was applied, so its output must never depend on the environment it
+# runs in: reading EMBEDDING_DIM from config would give a fresh database a different
+# schema than the one this revision actually created, and the two would diverge in
+# silence. Changing the dimension means writing a NEW migration, not editing this one.
+# 1024 = multilingual-e5-large. Kept in sync with Settings.embedding_dim by
+# tests/test_embedding_dim.py.
+EMBEDDING_DIM = 1024
+
+# Read from settings by design — grants target a deployment's role, and unlike the
+# column shape they are environment-specific rather than part of the schema's history.
 APP_DB_ROLE = get_settings().app_db_role
 
 
