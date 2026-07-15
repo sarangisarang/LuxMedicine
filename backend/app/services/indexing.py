@@ -140,6 +140,14 @@ async def index_version(
     for start in range(0, len(rows), INSERT_BATCH):
         await session.execute(insert(Chunk), rows[start : start + INSERT_BATCH])
 
+    # The damage, recorded on the version rather than returned and forgotten (#41, 0013).
+    # The previous commit refused the corrupted chunks and told nobody, so the corpus just
+    # got quieter — and "the guideline does not say" and "we could not read the page where
+    # it says it" became the same answer, which is precisely what #20 exists to prevent.
+    #
+    # Written even when empty: [] means measured and clean, NULL means nobody looked.
+    version.unreadable_pages = document.damaged_pages
+
     # Last, and inside the same transaction: reachable and complete stay coupled.
     version.status = VersionStatus.ACTIVE
 

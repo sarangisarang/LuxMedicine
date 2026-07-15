@@ -45,6 +45,15 @@ class SearchHit:
     # Set when the version has a successor.
     is_superseded: bool
 
+    # Pages of this version whose text could not be read, so their chunks were refused
+    # (#41). Travels with the hit for the same reason is_superseded does: by the time a
+    # clinician reads the quote, the fact that the document has holes is not recoverable
+    # from anywhere else, and "the guideline does not say" would be indistinguishable from
+    # "we could not read the page where it says it".
+    #
+    # None means the version predates the measurement — not that it is clean.
+    unreadable_pages: list[int] | None = None
+
     # The label of the edition at the end of this version's supersession chain — what
     # the clinician should actually be reading. Not the immediate successor: given
     # 2021 -> 2022 -> 2023, naming 2022 sends them to read another outdated document.
@@ -78,6 +87,7 @@ def _base_query(embedding: list[float], *, include_archived: bool) -> Select:
             Chunk.content,
             Chunk.embedding.cosine_distance(embedding).label("distance"),
             DocumentVersion.superseded_by.isnot(None).label("is_superseded"),
+            DocumentVersion.unreadable_pages,
         )
         .join(DocumentVersion, Chunk.document_version_id == DocumentVersion.id)
         .join(Document, DocumentVersion.document_id == Document.id)
@@ -139,6 +149,7 @@ async def search(
             superseding_version_label=(
                 labels.get(row.document_version_id) if row.is_superseded else None
             ),
+            unreadable_pages=row.unreadable_pages,
         )
         for row in rows
     ]
@@ -255,6 +266,7 @@ async def hybrid_search(
                 Chunk.content,
                 Chunk.embedding.cosine_distance(embedding).label("distance"),
                 DocumentVersion.superseded_by.isnot(None).label("is_superseded"),
+                DocumentVersion.unreadable_pages,
             )
             .join(DocumentVersion, Chunk.document_version_id == DocumentVersion.id)
             .join(Document, DocumentVersion.document_id == Document.id)
@@ -281,6 +293,7 @@ async def hybrid_search(
             superseding_version_label=(
                 labels.get(row.document_version_id) if row.is_superseded else None
             ),
+            unreadable_pages=row.unreadable_pages,
             found_by_vector=bool(ranking[row.id].found_by_vector),
             found_by_lexical=bool(ranking[row.id].found_by_lexical),
             rrf_score=float(ranking[row.id].rrf_score),

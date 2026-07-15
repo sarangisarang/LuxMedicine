@@ -42,6 +42,11 @@ class RetrievalGroup:
     document_title: str
     is_superseded: bool
     superseding_version_label: str | None
+
+    # Taken from the first hit rather than passed in: every hit in a group is the same
+    # version, so they all carry the same value, and a separately-supplied one could
+    # disagree with the hits it describes.
+    unreadable_pages: list[int] | None
     hits: list[SearchHit]
 
     @property
@@ -69,6 +74,7 @@ def group_hits(hits: list[SearchHit]) -> list[RetrievalGroup]:
             document_title=version_hits[0].document_title,
             is_superseded=version_hits[0].is_superseded,
             superseding_version_label=version_hits[0].superseding_version_label,
+            unreadable_pages=version_hits[0].unreadable_pages,
             hits=version_hits,
         )
         for version_id, version_hits in by_version.items()

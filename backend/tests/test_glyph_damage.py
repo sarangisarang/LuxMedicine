@@ -17,6 +17,7 @@ works.
 """
 
 import pathlib
+import uuid as uuid_mod
 
 import pytest
 
@@ -205,3 +206,260 @@ async def test_damaged_chunks_never_reach_the_corpus(session):
     # See the docstring: committing this would put 163 pages of nephrology into every
     # other test's corpus.
     await session.rollback()
+
+
+# --- the half that was missing ------------------------------------------------------
+
+
+@pytest.mark.skipif(not KDIGO.exists(), reason="needs storage/kdigo_2012_ckd.pdf")
+async def test_the_hole_is_visible_to_whoever_reads_the_answer(session):
+    """The half of #41 the first commit left out.
+
+    The chunks were correctly refused and nothing remembered. So a clinician asking about
+    the CKD-EPI equation would get the surrounding prose about eGFR estimation, without
+    the equation, and with nothing saying a page was missing. **The answer looks
+    complete.** That is "the guideline does not say" and "we could not read the page where
+    it says it" producing the same output — the confusion #20 exists to prevent, one layer
+    down, created by the guard meant to prevent it.
+
+    The damage was loud to the operator running ingestion and silent to the clinician
+    reading the result, which is the wrong way round.
+    """
+    import uuid
+
+    from sqlalchemy import select
+
+    from app.models.document import Document, DocumentVersion, VersionStatus
+    from app.services.indexing import index_version
+    from tests.test_indexing import FakeEmbedder
+
+    marker = uuid.uuid4().hex[:8]
+    document = Document(title=f"KDIGO Hole {marker}", issuing_org="ESC", region="EU")
+    session.add(document)
+    await session.flush()
+
+    version = DocumentVersion(
+        document_id=document.id,
+        version_label=f"2012-{marker}",
+        file_hash=marker.ljust(64, "0"),
+        storage_uri=str(KDIGO),
+        status=VersionStatus.PENDING,
+    )
+    session.add(version)
+    await session.flush()
+
+    await index_version(session, version.id, FakeEmbedder())
+    await session.flush()
+
+    stored = (
+        await session.execute(
+            select(DocumentVersion.unreadable_pages).where(DocumentVersion.id == version.id)
+        )
+    ).scalar_one()
+
+    assert stored, "the damage did not survive ingestion; the corpus just got quieter"
+    assert 8 in stored, "and it must name the page, so someone can open the PDF there"
+
+    await session.rollback()
+
+
+def test_an_unmeasured_version_is_not_a_clean_one():
+    """NULL and [] are different claims. Empty means measured and clean; NULL means nobody
+    looked — a version indexed before 0013. Collapsing them would let 'we never checked'
+    read as 'we checked and it was fine', which is the same trade this whole issue is
+    about."""
+    from app.services.retrieval import SearchHit
+
+    unmeasured = SearchHit(
+        chunk_id=uuid_mod.uuid4(),
+        document_version_id=uuid_mod.uuid4(),
+        document_id=uuid_mod.uuid4(),
+        document_title="Old Guideline",
+        issuing_org="ESC",
+        version_label="2019",
+        section="1",
+        page_start=1,
+        page_end=1,
+        content="x",
+        distance=0.1,
+        is_superseded=False,
+        superseding_version_label=None,
+    )
+
+    assert unmeasured.unreadable_pages is None, "not [] — nobody measured this version"
+
+
+def test_the_group_shows_the_holes_of_the_document_it_cites():
+    from app.schemas.answer import SourceGroup
+
+    group = SourceGroup(
+        issuing_org="ESC",
+        version_label="2012",
+        document_version_id=uuid_mod.uuid4(),
+        citations=[
+            {
+                "chunk_id": uuid_mod.uuid4(),
+                "document_version_id": uuid_mod.uuid4(),
+                "document_title": "KDIGO 2012 CKD",
+                "issuing_org": "ESC",
+                "version_label": "2012",
+                "page_start": 30,
+                "page_end": 30,
+                "section": "4.1",
+                "quote": "GFR should be estimated from serum creatinine.",
+            }
+        ],
+        unreadable_pages=[7, 8, 10],
+    )
+
+    assert group.has_unreadable_pages
+    assert group.unreadable_pages == [7, 8, 10]
+
+
+def test_a_clean_document_says_nothing():
+    """The warning must be absent when there is nothing to warn about, or it becomes
+    furniture and stops being read."""
+    from app.schemas.answer import SourceGroup
+
+    group = SourceGroup(
+        issuing_org="ESC",
+        version_label="2021",
+        document_version_id=uuid_mod.uuid4(),
+        citations=[
+            {
+                "chunk_id": uuid_mod.uuid4(),
+                "document_version_id": uuid_mod.uuid4(),
+                "document_title": "Clean Guideline",
+                "issuing_org": "ESC",
+                "version_label": "2021",
+                "page_start": 1,
+                "page_end": 1,
+                "section": "1",
+                "quote": "Bisoprolol should be initiated at 1.25 mg once daily.",
+            }
+        ],
+    )
+
+    assert not group.has_unreadable_pages
+    assert group.unreadable_pages == []
+
+
+@pytest.mark.skipif(not KDIGO.exists(), reason="needs storage/kdigo_2012_ckd.pdf")
+async def test_the_damage_survives_the_whole_path_to_the_answer(session):
+    """Database -> retrieval -> grouping -> the object a clinician is handed.
+
+    A mutation run found three of the four links untested: dropping unreadable_pages from
+    the SearchHit, from the group, or from the SourceGroup broke nothing. Every test above
+    checked one end or the other — indexing writes it, a hand-built SourceGroup shows it —
+    and none walked the middle. A field that four functions must pass along is a field
+    three of them can quietly stop passing.
+
+    Runs inside one transaction: index, search what was just indexed, roll back. Nothing
+    reaches the shared corpus.
+    """
+    import uuid
+
+    from app.models.document import Document, DocumentVersion, VersionStatus
+    from app.services.answering import assemble
+    from app.services.grouping import group_hits
+    from app.services.indexing import index_version
+    from app.services.retrieval import hybrid_search
+    from tests.test_indexing import FakeEmbedder
+
+    marker = uuid.uuid4().hex[:8]
+    document = Document(title=f"KDIGO Path {marker}", issuing_org="ESC", region="EU")
+    session.add(document)
+    await session.flush()
+
+    version = DocumentVersion(
+        document_id=document.id,
+        version_label=f"2012-{marker}",
+        file_hash=marker.ljust(64, "0"),
+        storage_uri=str(KDIGO),
+        status=VersionStatus.PENDING,
+    )
+    session.add(version)
+    await session.flush()
+
+    embedder = FakeEmbedder()
+    await index_version(session, version.id, embedder)
+    await session.flush()
+
+    try:
+        hits = await hybrid_search(session, "chronic kidney disease", embedder, limit=200)
+        mine = [h for h in hits if h.document_version_id == version.id]
+        assert mine, "the freshly indexed version is not searchable"
+
+        # 1. the hit carries it out of the database
+        assert mine[0].unreadable_pages, "retrieval dropped it"
+        assert 8 in mine[0].unreadable_pages
+
+        # 2. grouping carries it
+        groups = group_hits(mine)
+        assert groups[0].unreadable_pages, "grouping dropped it"
+
+        # 3. and the object the clinician is handed says so
+        from app.services.answering import ExtractionResult, SelectedQuote
+
+        quote = mine[0].content[:60]
+        answer = assemble(
+            "chronic kidney disease",
+            mine[:1],
+            ExtractionResult(quotes=[SelectedQuote(source=1, quote=quote)]),
+            prompt="(test)",
+            model="fake",
+            query_language="en",
+        )
+        [group] = answer.payload.groups
+        assert group.has_unreadable_pages, (
+            "the answer reached the clinician with no sign that this document has holes"
+        )
+        assert 8 in group.unreadable_pages
+    finally:
+        await session.rollback()
+
+
+@pytest.mark.skipif(not KDIGO.exists(), reason="needs storage/kdigo_2012_ckd.pdf")
+async def test_both_retrieval_paths_carry_it(session):
+    """`search()` and `hybrid_search()` build SearchHits from separate queries.
+
+    A mutation run deleted the field from one of the two constructions and every test
+    still passed: the test above goes through hybrid_search, so the vector-only path was
+    uncovered. Two code paths that must agree are two code paths that will not, and the
+    one nobody exercises is the one that drifts.
+    """
+    import uuid
+
+    from app.models.document import Document, DocumentVersion, VersionStatus
+    from app.services.indexing import index_version
+    from app.services.retrieval import hybrid_search, search
+    from tests.test_indexing import FakeEmbedder
+
+    marker = uuid.uuid4().hex[:8]
+    document = Document(title=f"KDIGO Paths {marker}", issuing_org="ESC", region="EU")
+    session.add(document)
+    await session.flush()
+
+    version = DocumentVersion(
+        document_id=document.id,
+        version_label=f"2012-{marker}",
+        file_hash=marker.ljust(64, "0"),
+        storage_uri=str(KDIGO),
+        status=VersionStatus.PENDING,
+    )
+    session.add(version)
+    await session.flush()
+
+    embedder = FakeEmbedder()
+    await index_version(session, version.id, embedder)
+    await session.flush()
+
+    try:
+        for finder in (search, hybrid_search):
+            hits = await finder(session, "chronic kidney disease", embedder, limit=400)
+            mine = [h for h in hits if h.document_version_id == version.id]
+            assert mine, f"{finder.__name__} did not reach the version"
+            assert mine[0].unreadable_pages, f"{finder.__name__} dropped unreadable_pages"
+            assert 8 in mine[0].unreadable_pages
+    finally:
+        await session.rollback()

@@ -124,6 +124,25 @@ class SourceGroup(BaseModel):
     is_superseded: bool = False
     superseding_version_label: str | None = None
 
+    # Pages of this document whose text could not be read (#41). Not a diagnostic —
+    # something the clinician is entitled to see next to the quote.
+    #
+    # KDIGO 2012 arrives with 18 such pages: the CKD-EPI equation extracted as
+    # `141(cid:2)min(SCr/k,1)...`, every operator deleted, so those chunks are refused at
+    # indexing. Without this field the answer is prose about eGFR with the equation
+    # quietly absent, and it looks complete. "The guideline does not say" and "we could
+    # not read the page where it says it" would be the same output — the confusion
+    # NoAnswerReason exists to prevent, one layer down.
+    #
+    # This carries no clinical content and cannot: it is a list of page numbers. The MDR
+    # line is untouched — nothing here advises, it only says where this document is
+    # unreadable so a clinician can open the PDF and look.
+    unreadable_pages: list[int] = Field(default_factory=list)
+
+    @property
+    def has_unreadable_pages(self) -> bool:
+        return bool(self.unreadable_pages)
+
 
 class ConflictFinding(BaseModel):
     """Raised only when retrieval spans multiple issuing organisations and a comparison

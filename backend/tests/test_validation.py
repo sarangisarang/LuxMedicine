@@ -228,7 +228,17 @@ def test_a_citation_cannot_carry_an_empty_quote():
 def test_the_schema_has_no_field_for_a_claim():
     """The MDR positioning, as a test. If a field ever appears here that holds free
     clinical text, this fails — and that is the moment to re-open the question rather
-    than widen the schema."""
+    than widen the schema.
+
+    It fired once, on `unreadable_pages` (#41), and the answer was to add it: a
+    `list[int]` of page numbers holds no clinical text and cannot be made to. Nothing in
+    it advises; it says which pages of the cited document could not be read, so a
+    clinician can open the PDF and look. That is provenance, which this schema is made
+    of, not guidance, which it refuses.
+
+    The tripwire firing on a field that turned out to be fine is not a false positive.
+    It is the tripwire making someone say out loud why the field is fine.
+    """
     assert set(Citation.model_fields) == {
         "chunk_id",
         "document_version_id",
@@ -247,6 +257,8 @@ def test_the_schema_has_no_field_for_a_claim():
         "citations",
         "is_superseded",
         "superseding_version_label",
+        # list[int]. Page numbers, not prose. See the docstring.
+        "unreadable_pages",
     }
 
 

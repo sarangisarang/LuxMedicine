@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    Integer,
     CheckConstraint,
     Date,
     DateTime,
@@ -14,7 +15,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -106,7 +107,16 @@ class DocumentVersion(Base):
     document_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("documents.id", ondelete="CASCADE"), index=True
     )
-    version_label: Mapped[str] = mapped_column(String(64))  # "2021", "2023 Focused Update"
+    version_label: Mapped[str] = mapped_column(String(64))
+
+    # Pages whose glyphs the embedded font never named, so their chunks were refused at
+    # indexing (#41). Carried on the version because that is what retrieval joins to and
+    # what a citation names: a clinician reading this document's guidance is entitled to
+    # know it has holes, and where.
+    #
+    # NULL means nobody measured — a version indexed before 0013. Empty means measured and
+    # clean. Those are different claims and only one of them is reassuring.
+    unreadable_pages: Mapped[list[int] | None] = mapped_column(ARRAY(Integer))  # "2021", "2023 Focused Update"
     published_at: Mapped[datetime | None] = mapped_column(Date)
 
     status: Mapped[VersionStatus] = mapped_column(

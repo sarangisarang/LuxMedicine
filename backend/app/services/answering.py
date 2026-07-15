@@ -189,6 +189,7 @@ def assemble(
             citations=citations_by_version[group.document_version_id],
             is_superseded=group.is_superseded,
             superseding_version_label=group.superseding_version_label,
+            unreadable_pages=group.unreadable_pages or [],
         )
         for group in group_hits(shown)
         if group.document_version_id in citations_by_version
