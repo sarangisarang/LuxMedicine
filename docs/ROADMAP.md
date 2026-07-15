@@ -74,9 +74,27 @@ conflict detection depends on it entirely.
 - **#16** Multilingual term expansion — "ჰიპერტენზია" must reach "hypertension" and "Hypertonie"
 - **#17** Staleness detection: flag hits whose version has a `superseded_by`
 
-> #15 is not optional polish. Pure vector search misses exact drug names and dosages —
-> the highest-stakes tokens in the corpus. Lexical matching is what catches "Enalapril
-> 20 mg" when the embedding drifts toward a semantic neighbour.
+> #15 was justified by a claim that turned out to be false, and is still worth building.
+>
+> The claim: pure vector search misses exact drug names because the embedding drifts
+> toward a semantic neighbour. Measured against multilingual-e5-large, with five ACE
+> inhibitors whose passages differ only by drug name and dose: **top-1 correct, 5 out of
+> 5.** No drift.
+>
+> What the numbers show instead is worse, because it is quieter:
+>
+> ```
+> enalapril query -> 0.9126 enalapril
+>                    0.8736 lisinopril    <- a different drug
+>                    0.8693 perindopril
+>                    0.8666 captopril
+>                    0.8585 ramipril
+> ```
+>
+> All five inside 0.055. Top-1 is right by a margin thinner than noise, and any top-k
+> above 1 returns four passages about drugs nobody asked about — each looking exactly as
+> relevant as the right one. #18 is what gets handed that list. Lexical search holds no
+> opinion about near-misses: the token is present or it is not.
 
 ## Phase 4 — Extractive answering
 

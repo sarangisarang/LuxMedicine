@@ -1,4 +1,4 @@
-"""Vector search over the corpus (#14).
+"""Search over the corpus (#14 vector, #15 hybrid).
 
 Only `active` versions are searched. A pending version has no chunks and an archived one
 has been replaced, so neither should answer a question — and #10's status field is what
@@ -14,10 +14,10 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.chunk import Chunk
+from app.models.chunk import TEXT_SEARCH_CONFIG, Chunk
 from app.models.document import Document, DocumentVersion, VersionStatus
 from app.services.embedding import Embedder
 
@@ -43,6 +43,13 @@ class SearchHit:
     # Set when the version has a successor. #17 turns this into "a newer edition exists";
     # it is surfaced here so retrieval never hands back stale guidance silently.
     is_superseded: bool
+
+    # Which half of the hybrid found it. Not decoration: a hit only the lexical side
+    # found is usually an exact drug name or dose the embedding ranked flat, and that is
+    # precisely the case #15 exists for. Worth being able to see.
+    found_by_vector: bool = True
+    found_by_lexical: bool = False
+    rrf_score: float | None = None
 
 
 def _base_query(embedding: list[float], *, include_archived: bool) -> Select:
@@ -123,3 +130,144 @@ async def search(
         )
         for row in rows
     ]
+
+
+# Reciprocal Rank Fusion. 60 is the value from the original paper and the usual default;
+# it damps the difference between ranks 1 and 2 so a single confident list cannot bully
+# the other into irrelevance.
+RRF_K = 60
+
+# How deep each half looks before fusing. Wider than `limit` on purpose: a chunk the
+# lexical side ranks 12th and the vector side ranks 30th should still be able to surface,
+# and neither list can vote for what it never retrieved.
+CANDIDATE_DEPTH = 50
+
+_HYBRID_SQL = """
+WITH searchable AS (
+    SELECT c.id, c.embedding, c.content_tsv
+    FROM chunks c
+    JOIN document_versions v ON c.document_version_id = v.id
+    WHERE v.status = ANY(CAST(:statuses AS version_status[]))
+),
+vector_hits AS (
+    SELECT id, ROW_NUMBER() OVER (ORDER BY embedding <=> CAST(:query_vector AS vector)) AS rank
+    FROM searchable
+    ORDER BY embedding <=> CAST(:query_vector AS vector)
+    LIMIT :depth
+),
+lexical_hits AS (
+    SELECT id, ROW_NUMBER() OVER (ORDER BY ts_rank_cd(content_tsv, query) DESC) AS rank
+    FROM searchable, websearch_to_tsquery(:config, :query_text) AS query
+    WHERE content_tsv @@ query
+    ORDER BY ts_rank_cd(content_tsv, query) DESC
+    LIMIT :depth
+)
+SELECT
+    COALESCE(v.id, l.id) AS chunk_id,
+    COALESCE(1.0 / (:k + v.rank), 0.0) + COALESCE(1.0 / (:k + l.rank), 0.0) AS rrf_score,
+    v.id IS NOT NULL AS found_by_vector,
+    l.id IS NOT NULL AS found_by_lexical
+FROM vector_hits v
+FULL OUTER JOIN lexical_hits l ON v.id = l.id
+ORDER BY rrf_score DESC
+LIMIT :limit
+"""
+
+
+async def hybrid_search(
+    session: AsyncSession,
+    query_text: str,
+    embedder: Embedder,
+    *,
+    limit: int = 10,
+    include_archived: bool = False,
+) -> list[SearchHit]:
+    """Vector and lexical search, fused by rank (#15).
+
+    Why this exists, measured rather than assumed. Asked about five ACE inhibitors whose
+    passages differ only by drug name and dose, multilingual-e5-large gets top-1 right
+    every time — but scores them 0.9126 / 0.8736 / 0.8693 / 0.8666 / 0.8585. All five
+    inside 0.055. So any top-k above 1 hands back four passages about drugs nobody asked
+    for, each looking as relevant as the right one, and #18 could lift lisinopril's dose
+    into an answer about enalapril. Lexical search does not have opinions about
+    near-misses: the word is there or it is not.
+
+    Fused on rank, not score. Cosine distance and ts_rank_cd share no scale, and any
+    mapping between them would be a constant somebody invented and nobody could audit
+    later. RRF only asks each half for an ordering.
+
+    websearch_to_tsquery, not to_tsquery: the input is a clinician's free text, and
+    to_tsquery raises a syntax error on a stray quote or ampersand. A search box that
+    500s on an apostrophe is not a search box.
+    """
+    embedding = embedder.embed_query(query_text)
+    statuses = (
+        ["active", "archived"] if include_archived else ["active"]
+    )
+
+    fused = (
+        await session.execute(
+            text(_HYBRID_SQL),
+            {
+                "statuses": statuses,
+                "query_vector": str(embedding),
+                "query_text": query_text,
+                "config": TEXT_SEARCH_CONFIG,
+                "depth": CANDIDATE_DEPTH,
+                "k": RRF_K,
+                "limit": limit,
+            },
+        )
+    ).all()
+
+    if not fused:
+        return []
+
+    ranking = {row.chunk_id: row for row in fused}
+
+    detail = (
+        await session.execute(
+            select(
+                Chunk.id,
+                Chunk.document_version_id,
+                Document.id.label("document_id"),
+                Document.title,
+                Document.issuing_org,
+                DocumentVersion.version_label,
+                Chunk.section,
+                Chunk.page_start,
+                Chunk.page_end,
+                Chunk.content,
+                Chunk.embedding.cosine_distance(embedding).label("distance"),
+                DocumentVersion.superseded_by.isnot(None).label("is_superseded"),
+            )
+            .join(DocumentVersion, Chunk.document_version_id == DocumentVersion.id)
+            .join(Document, DocumentVersion.document_id == Document.id)
+            .where(Chunk.id.in_(list(ranking)))
+        )
+    ).all()
+
+    hits = [
+        SearchHit(
+            chunk_id=row.id,
+            document_version_id=row.document_version_id,
+            document_id=row.document_id,
+            document_title=row.title,
+            issuing_org=row.issuing_org,
+            version_label=row.version_label,
+            section=row.section,
+            page_start=row.page_start,
+            page_end=row.page_end,
+            content=row.content,
+            distance=float(row.distance),
+            is_superseded=bool(row.is_superseded),
+            found_by_vector=bool(ranking[row.id].found_by_vector),
+            found_by_lexical=bool(ranking[row.id].found_by_lexical),
+            rrf_score=float(ranking[row.id].rrf_score),
+        )
+        for row in detail
+    ]
+
+    # Ordered by the fusion, not by either half's own opinion.
+    hits.sort(key=lambda hit: hit.rrf_score, reverse=True)
+    return hits
