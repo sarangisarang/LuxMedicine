@@ -1,11 +1,11 @@
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Response, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import documents
 from app.core.config import get_settings
 from app.db.session import get_session
-from app.services.audit import ChainBreak, verify_chain
+from app.services.chain_monitor import verify_and_checkpoint
 
 settings = get_settings()
 
@@ -27,15 +27,44 @@ async def health(session: AsyncSession = Depends(get_session)) -> dict:
     return {"status": "ok", "environment": settings.environment}
 
 
-@app.get("/audit/verify")
-async def audit_verify(session: AsyncSession = Depends(get_session)) -> dict:
-    """Walk the audit chain end to end.
+@app.get(
+    "/audit/verify",
+    responses={500: {"description": "The chain is broken — the body says where and since when"}},
+)
+async def audit_verify(
+    response: Response, session: AsyncSession = Depends(get_session)
+) -> dict:
+    """Walk the audit chain end to end, and checkpoint it if intact.
 
-    Exposed as an endpoint so a clinic's auditor can demand proof on the spot, and so
-    the check can be scheduled rather than remembered.
+    **A break returns 500, not 200.** It used to return 200 with `{"intact": false}` in
+    the body, which is the sort of thing that reads fine and fails in production: every
+    generic monitor — `curl -f`, an uptime check, a Kubernetes probe, a cron entry that
+    checks exit status — treats 200 as healthy. Scheduling that endpoint (#29) would have
+    produced a green dashboard over a rewritten trail. A check that reports its own
+    failure as success is worse than no check: it manufactures confidence.
+
+    500 rather than a 4xx because a broken chain is not the caller's fault, and rather
+    than 503 because retrying will not help.
     """
-    try:
-        verified = await verify_chain(session)
-    except ChainBreak as exc:
-        return {"intact": False, "broken_at_seq": exc.seq, "reason": exc.reason}
-    return {"intact": True, "rows_verified": verified}
+    result = await verify_and_checkpoint(session, verified_by="http")
+
+    if not result.intact:
+        response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {
+            "intact": False,
+            "broken_at_seq": result.broken_at_seq,
+            "reason": result.reason,
+            "intact_as_of": (
+                result.previous_checkpoint_at.isoformat()
+                if result.previous_checkpoint_at
+                else None
+            ),
+            "break_is_bounded": result.break_is_bounded,
+        }
+
+    return {
+        "intact": True,
+        "rows_verified": result.entries_verified,
+        "checkpoint_id": result.checkpoint_id,
+        "verified_through_seq": result.verified_through_seq,
+    }
