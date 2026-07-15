@@ -33,13 +33,17 @@ question first, because that field is what turns this into a Class IIa device.
 
 | Path | Role |
 |---|---|
-| `app/models/document.py` | `Document` (the work) + `DocumentVersion` (the edition) |
-| `app/models/chunk.py` | Retrievable passages, owned by a **version** |
-| `app/models/query.py` | Clinician questions — the erasable side of the GDPR line |
-| `app/models/audit.py` | Append-only, hash-chained trail |
-| `app/schemas/answer.py` | The extractive answer contract |
+| `app/schemas/answer.py` | The extractive answer contract — where the MDR line lives |
+| `app/services/pipeline.py` | The query flow: retrieve → extract → validate → record |
+| `app/services/validation.py` | #19 — verbatim citation checking |
+| `app/services/answering.py` | Assembly: the model picks a passage and a span, nothing else |
 | `app/services/audit.py` | Chain append, verification, GDPR redaction |
-| `alembic/versions/0001_*` | Schema + the triggers that make append-only real |
+| `app/services/audit_export.py` | Reconstructing the trail for a dispute |
+| `app/services/retrieval.py` | Vector + lexical search, fused by rank |
+| `app/services/extraction.py` | PDF text with a page ledger |
+| `app/services/chunking.py` | Section-aware chunking; typography tells a heading from a dose |
+| `app/models/` | documents / versions / chunks / queries / audit_log / drug_aliases |
+| `alembic/versions/` | 0001–0007; the triggers that make append-only real are in 0001 |
 
 ## Three decisions worth knowing
 
@@ -87,17 +91,35 @@ every hashed field, plus chunk-id *order*, must move `row_hash`.
 
 ## Not yet built
 
-Ingestion, embedding, retrieval, conflict detection, and auth are absent — this is the
-schema and the audit substrate only. `AnswerPayload.conflicts` is the contract the
-conflict pass will fill: group retrieved chunks by `issuing_org`, and only escalate to
-a comparison call when a single result set spans more than one organisation.
+**No HTTP endpoint for asking a question.** The pipeline is complete and tested;
+`answer_query()` takes `actor_id` as a parameter, and only a verified identity may supply
+one (#30). An endpoint now would take the actor from the request — and a trail whose
+author field the client sets is not evidence, it is a log again. The endpoint is twenty
+lines once identity exists.
 
-Roadmap, deliberately deferred: voice input, multimodal RAG over figures and tables,
-FHIR/HL7 integration.
+**The extractor has never been run.** `app/services/extractor_claude.py` needs an API key
+and spends money per call. Everything else here was measured before it was trusted; that
+file is the exception and says so. Run it before trusting a clinician's question to it —
+`tests/test_embedding_real.py` is the precedent.
+
+**`drug_aliases` is empty.** The mechanism works and is tested; the data does not exist.
+Brand→generic mappings come from national drug registries, and a wrong one answers
+confidently about the wrong drug — so every row needs a `source` and a human behind it.
+
+**Conflict detection (#24, #25) and a frontend (#32–#36) are absent.** Deliberately
+deferred: scanned-PDF OCR (#13), voice input, multimodal RAG, FHIR/HL7.
 
 ## Embedding dimension
 
-`EMBEDDING_DIM=1536` is baked into `vector(1536)` by migration 0001. Changing it means
-re-embedding every chunk. Worth settling before ingestion starts — 18-language support
-points toward a multilingual model (e.g. `multilingual-e5-large` at 1024, or Cohere
-`embed-multilingual-v3` at 1024) rather than the 1536 default.
+`EMBEDDING_DIM=1024` is pinned as a literal in migration 0001 — `multilingual-e5-large`,
+self-hosted so clinical text is embedded inside the EU. Changing it means re-embedding
+every chunk **and** a new migration; `tests/test_embedding_dim.py` pins the literal
+against `Settings` and the `Chunk` column, because the drift would otherwise surface as a
+runtime dimension error rather than a review-time diff.
+
+**That EU argument is currently half true.** The embedding runs locally. Extraction (#18)
+calls a hosted model, so the clinician's question — which is pseudo-personal data, which
+is why `queries` is erasable at all — leaves. `inference_geo` is the lever (a first-party
+request parameter, absent on Bedrock and Vertex), and its accepted values are not
+established here, so it is exposed as an unset option rather than guessed at. Settle it
+before any real deployment.
