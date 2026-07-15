@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -19,6 +20,15 @@ class Settings(BaseSettings):
     embedding_dim: int = 1024
 
     environment: str = "local"
+
+    # Where original PDFs live. Local disk for now; this must become EU-hosted object
+    # storage before any real deployment, for the same data-residency reason that
+    # decided the embedding model.
+    storage_root: Path = Path("./storage")
+
+    # 100 MB. Clinical guidelines run to hundreds of pages, so the limit is generous —
+    # it exists to stop an upload sized to exhaust the disk, not to police page count.
+    max_upload_bytes: int = 100 * 1024 * 1024
 
 
 @lru_cache

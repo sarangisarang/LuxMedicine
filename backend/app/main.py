@@ -2,6 +2,7 @@ from fastapi import Depends, FastAPI
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api import documents
 from app.core.config import get_settings
 from app.db.session import get_session
 from app.services.audit import ChainBreak, verify_chain
@@ -16,6 +17,8 @@ app = FastAPI(
     ),
     version="0.1.0",
 )
+
+app.include_router(documents.router)
 
 
 @app.get("/health")

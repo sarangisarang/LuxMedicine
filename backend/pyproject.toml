@@ -17,12 +17,14 @@ dependencies = [
     "pydantic>=2.10",
     "pydantic-settings>=2.6",
     "python-dotenv>=1.0",
+    "python-multipart>=0.0.20",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
+    "httpx>=0.28",
     "ruff>=0.8",
 ]
 
