@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.chunk import TEXT_SEARCH_CONFIG, Chunk
 from app.models.document import Document, DocumentVersion, VersionStatus
 from app.services.embedding import Embedder
+from app.services.synonyms import expand_query, load_aliases
 
 
 @dataclass(frozen=True)
@@ -200,10 +201,13 @@ async def hybrid_search(
     to_tsquery raises a syntax error on a stray quote or ampersand. A search box that
     500s on an apostrophe is not a search box.
     """
-    embedding = embedder.embed_query(query_text)
-    statuses = (
-        ["active", "archived"] if include_archived else ["active"]
-    )
+    # Expand before either half sees the text. The measurement said the vector half
+    # needs this as much as the lexical one: a brand name is a fact the model was never
+    # taught, not a token it quietly covers.
+    expansion = expand_query(query_text, await load_aliases(session))
+
+    embedding = embedder.embed_query(expansion.expanded)
+    statuses = ["active", "archived"] if include_archived else ["active"]
 
     fused = (
         await session.execute(
@@ -211,7 +215,7 @@ async def hybrid_search(
             {
                 "statuses": statuses,
                 "query_vector": str(embedding),
-                "query_text": query_text,
+                "query_text": expansion.expanded,
                 "config": TEXT_SEARCH_CONFIG,
                 "depth": CANDIDATE_DEPTH,
                 "k": RRF_K,

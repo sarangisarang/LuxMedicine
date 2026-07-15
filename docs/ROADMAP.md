@@ -71,8 +71,35 @@ conflict detection depends on it entirely.
 
 - **#14** Vector search over `active` versions, with archived reachable by explicit request
 - **#15** Hybrid search: pgvector + Postgres full-text, fused
-- **#16** Multilingual term expansion — "ჰიპერტენზია" must reach "hypertension" and "Hypertonie"
+- **#16** Brand-name query expansion — "Renitec" must reach enalapril
 - **#17** Staleness detection: flag hits whose version has a `superseded_by`
+
+> #16 was scoped from a guess and re-scoped from a measurement. The guess: cross-lingual
+> jargon and lay phrasing would need a synonym layer. Measured against
+> multilingual-e5-large, they do not — every one of these reaches an English hypertension
+> passage unaided:
+>
+> ```
+> "ჰიპერტენზიის მკურნალობა"   margin 0.0738
+> "მაღალი წნევის მკურნალობა"   margin 0.0804
+> "Hypertonie Behandlung"      margin 0.0740
+> "лечение высокого давления"  margin 0.1160
+> "ACEi first line"            margin 0.0803
+> ```
+>
+> A medical thesaurus would have been months spent on a problem that does not exist.
+>
+> What the model genuinely cannot do is brand names, and it fails *below chance*:
+>
+> ```
+> "Renitec dose"  -> enalapril 0.8254 | metformin 0.8264   margin -0.0010
+> "Vasotec dose"  -> enalapril 0.8171 | metformin 0.8193   margin -0.0022
+> ```
+>
+> Renitec is enalapril. A clinician asking by the name on the box gets a diabetes drug,
+> ranked first. No embedding reaches that association — it is a fact the model was never
+> shown, not a nuance it fumbles — so it is a curated table with provenance on every row.
+> Wrong aliases answer confidently about the wrong drug.
 
 > #15 was justified by a claim that turned out to be false, and is still worth building.
 >

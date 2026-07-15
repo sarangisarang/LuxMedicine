@@ -1,3 +1,4 @@
+from app.models.alias import DrugAlias
 from app.models.audit import GENESIS_HASH, AuditLog
 from app.models.chunk import Chunk
 from app.models.document import Document, DocumentVersion, VersionStatus
@@ -8,6 +9,7 @@ __all__ = [
     "AuditLog",
     "Chunk",
     "Document",
+    "DrugAlias",
     "DocumentVersion",
     "Query",
     "VersionStatus",

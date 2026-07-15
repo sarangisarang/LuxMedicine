@@ -16,6 +16,7 @@ pytest.importorskip("sentence_transformers", reason="needs the 'embeddings' extr
 
 from app.core.config import get_settings  # noqa: E402
 from app.services.embedding import DEFAULT_MODEL, E5Embedder  # noqa: E402
+from app.services.synonyms import expand_query  # noqa: E402
 
 pytestmark = pytest.mark.slow
 
@@ -95,6 +96,71 @@ def test_a_non_english_query_finds_an_english_passage(embedder, language, questi
     relevant = _cosine(query, passages[0])
     unrelated = _cosine(query, passages[1])
     assert relevant > unrelated, f"{language} query did not reach the matching English passage"
+
+
+@pytest.mark.parametrize("brand", ["Renitec", "Vasotec"])
+def test_a_brand_name_reaches_the_wrong_drug_without_expansion(embedder, brand):
+    """The gap #16 exists for, pinned against the real weights.
+
+    Renitec and Vasotec are enalapril. The model does not know that — nothing in its
+    training says so — and it does not fail neutrally: it scores the query *nearer* a
+    metformin passage than the enalapril one. Below chance. A clinician asking about a
+    patient's blood-pressure medicine by the name on the box gets a diabetes drug, first.
+
+    This test asserts the failure on purpose. If it ever starts passing, the model has
+    changed and the alias table's value should be re-measured rather than assumed.
+    """
+    enalapril, metformin = embedder.embed_passages(
+        [
+            "The target dose of enalapril is 20 mg twice daily.",
+            "The target dose of metformin is 1000 mg twice daily.",
+        ]
+    )
+    query = embedder.embed_query(f"{brand} dose")
+
+    assert _cosine(query, enalapril) < _cosine(query, metformin), (
+        f"{brand} now reaches enalapril unaided — re-measure whether aliases still earn their keep"
+    )
+
+
+@pytest.mark.parametrize("brand", ["Renitec", "Vasotec"])
+def test_expansion_fixes_it(embedder, brand):
+    """The fix, measured the same way. Appending the generic is enough — and it has to
+    reach the embedding, not just the tsquery, because this is a fact the model lacks
+    rather than a token it fumbles."""
+    aliases = {"renitec": "enalapril", "vasotec": "enalapril"}
+    expanded = expand_query(f"{brand} dose", aliases)
+    assert expanded.was_expanded
+
+    enalapril, metformin = embedder.embed_passages(
+        [
+            "The target dose of enalapril is 20 mg twice daily.",
+            "The target dose of metformin is 1000 mg twice daily.",
+        ]
+    )
+    query = embedder.embed_query(expanded.expanded)
+
+    assert _cosine(query, enalapril) > _cosine(query, metformin)
+
+
+def test_cross_lingual_lay_terms_need_no_expansion(embedder):
+    """The other half of the measurement, and the reason #16 is a drug-alias table
+    rather than a medical thesaurus.
+
+    ROADMAP predicted lay and cross-lingual phrasing would need a synonym layer. It does
+    not: "მაღალი წნევა" reaches an English hypertension passage unaided. Building a
+    thesaurus for this would have been effort spent on a problem that does not exist.
+    """
+    hypertension, decoy = embedder.embed_passages(
+        [
+            "Hypertension is treated with ACE inhibitors as first-line therapy in adults.",
+            "Bone fractures of the femur require orthopaedic surgical fixation.",
+        ]
+    )
+
+    for phrasing in ["მაღალი წნევის მკურნალობა", "high blood pressure treatment", "Hypertonie"]:
+        query = embedder.embed_query(phrasing)
+        assert _cosine(query, hypertension) > _cosine(query, decoy), phrasing
 
 
 def test_the_same_meaning_in_two_languages_lands_close_together(embedder):
