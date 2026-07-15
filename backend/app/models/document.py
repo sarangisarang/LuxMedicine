@@ -2,7 +2,18 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Date, DateTime, Enum, ForeignKey, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    CheckConstraint,
+    Date,
+    DateTime,
+    Enum,
+    ForeignKey,
+    ForeignKeyConstraint,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -50,7 +61,26 @@ class DocumentVersion(Base):
     """
 
     __tablename__ = "document_versions"
-    __table_args__ = (UniqueConstraint("document_id", "version_label", name="uq_document_version"),)
+    __table_args__ = (
+        UniqueConstraint("document_id", "version_label", name="uq_document_version"),
+        # Redundant as uniqueness — id is the primary key — but a composite foreign key
+        # needs a matching unique target, and this is what lets the FK below carry
+        # document_id along.
+        UniqueConstraint("id", "document_id", name="uq_version_id_document"),
+        CheckConstraint(
+            "superseded_by IS NULL OR superseded_by <> id",
+            name="ck_version_not_self_superseding",
+        ),
+        # The successor must belong to the same guideline. A plain FK on superseded_by
+        # would accept any version anywhere, and #17 would then tell a cardiologist
+        # their heart-failure guideline is superseded by an oncology document.
+        ForeignKeyConstraint(
+            ["superseded_by", "document_id"],
+            ["document_versions.id", "document_versions.document_id"],
+            name="fk_superseded_by_same_document",
+            ondelete="SET NULL",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     document_id: Mapped[uuid.UUID] = mapped_column(
@@ -84,14 +114,11 @@ class DocumentVersion(Base):
 
     # Set when a newer edition replaces this one. Drives the staleness warning:
     # "you are reading the 2021 guideline; a 2023 edition exists".
-    superseded_by: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("document_versions.id", ondelete="SET NULL")
-    )
+    superseded_by: Mapped[uuid.UUID | None] = mapped_column()
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     document: Mapped[Document] = relationship(back_populates="versions")
-    successor: Mapped["DocumentVersion | None"] = relationship(remote_side=[id])
     chunks: Mapped[list["Chunk"]] = relationship(  # noqa: F821
         back_populates="document_version", cascade="all, delete-orphan"
     )
