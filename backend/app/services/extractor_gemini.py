@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import os
 
+from app.core.config import get_settings
 from app.services.answering import ExtractionResult
 from app.services.extractor_claude import SYSTEM_PROMPT, render_prompt
 
@@ -158,13 +159,12 @@ class GeminiExtractor:
         return host in EU_PROCESSING_HOSTS
 
     def refuse_unless_eu_processing(self) -> None:
-        """What a deployment calls before handing this a clinician's question.
+        """Raise unless the resolved endpoint keeps ML processing in the EU.
 
-        Deliberately not called from __init__. Constructing an extractor to *measure* it
-        against invented fixtures is legitimate, and refusing at construction would mean
-        the only way to test the thing is to already be compliant. The refusal belongs at
-        the boundary where real clinical text enters — a deployment's decision to wire up.
-        This only makes the fact checkable.
+        Called from `extract()` outside local development — see there. Not from
+        `__init__`: constructing an extractor to *measure* it against invented fixtures
+        is legitimate, and refusing at construction would mean the only way to test the
+        thing is to already be compliant.
         """
         if not self.processes_in_eu:
             raise ProcessingLeavesTheEU(
@@ -178,6 +178,23 @@ class GeminiExtractor:
             )
 
     def extract(self, question: str, passages: list[str]) -> ExtractionResult | None:
+        # The boundary where clinical text leaves this process, and therefore the only
+        # place the residency promise can actually be kept.
+        #
+        # An available method nobody calls is the failure #29 was about: a chain nobody
+        # walks proves nothing, and a refusal nobody invokes refuses nothing. So it is
+        # invoked here rather than left for a deployment to remember — the same reason
+        # the audit lives inside the pipeline instead of in the handler, where a second
+        # endpoint added later could forget it.
+        #
+        # Gated on `environment` for the same reason `settings` gates the OIDC check:
+        # local development must be able to measure this against invented fixtures
+        # without a GCP project, and a deployment must not be able to send a clinician's
+        # question anywhere it likes. There is deliberately no flag that turns the
+        # refusal off — see core/auth.py on why AUTH_DISABLED does not exist either.
+        if get_settings().environment != "local":
+            self.refuse_unless_eu_processing()
+
         if not passages:
             return ExtractionResult(quotes=[])
 

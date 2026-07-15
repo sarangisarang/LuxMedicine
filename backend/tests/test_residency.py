@@ -159,3 +159,64 @@ def test_the_refusal_is_not_wired_into_the_constructor():
 
     assert not extractor.processes_in_eu, "constructing it is allowed"
     assert extractor.endpoint, "and it will happily tell you where it points"
+
+
+# --- the refusal is wired in, not merely available -----------------------------------
+
+
+def test_a_deployment_cannot_extract_through_a_non_eu_endpoint(monkeypatch):
+    """The lesson from #29, applied here.
+
+    `refuse_unless_eu_processing()` existed and nothing called it. A chain nobody walks
+    proves nothing; a refusal nobody invokes refuses nothing. It fires inside `extract()`
+    — the boundary where the question and the guideline passages leave this process, and
+    the only place the promise can actually be kept.
+
+    Note what this test does NOT need: a network, a key, or a passage. The refusal comes
+    before all of it.
+    """
+    from app.core.config import get_settings
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    # #30's boot check fires on the same switch: a deployed environment must have an
+    # issuer and an audience or Settings refuses to construct at all. Two guards on one
+    # gate, both correct — this one just has to get past the other to test itself.
+    monkeypatch.setenv("OIDC_ISSUER", "https://idp.example.invalid/realms/x")
+    monkeypatch.setenv("OIDC_AUDIENCE", "luxmedicine-api")
+    get_settings.cache_clear()
+    try:
+        extractor = GeminiExtractor()  # Developer API: global endpoint
+
+        with pytest.raises(ProcessingLeavesTheEU):
+            extractor.extract("What is the maximum bisoprolol dose?", ["some passage"])
+    finally:
+        get_settings.cache_clear()
+
+
+def test_local_development_can_still_measure(monkeypatch):
+    """The refusal must not make the thing untestable. Measuring an extractor against
+    invented fixtures needs no GCP project, and requiring one would mean the only way to
+    check the model is to already be compliant."""
+    from app.core.config import get_settings
+
+    monkeypatch.setenv("ENVIRONMENT", "local")
+    get_settings.cache_clear()
+    try:
+        extractor = GeminiExtractor()
+
+        # No passages: returns early, never calls the API. What matters is that the
+        # residency guard did not stop it.
+        assert extractor.extract("q", []) is not None
+    finally:
+        get_settings.cache_clear()
+
+
+def test_there_is_no_flag_that_turns_the_refusal_off():
+    """A regression guard aimed at a future good intention, same as core/auth.py's. A
+    `RESIDENCY_CHECK=false` for a quick demo is how clinical text ends up in another
+    jurisdiction: the flag ships, and nothing looks broken."""
+    from app.core.config import Settings
+
+    fields = set(Settings.model_fields)
+    for name in ("skip_residency_check", "allow_non_eu_processing", "residency_check"):
+        assert name not in fields
