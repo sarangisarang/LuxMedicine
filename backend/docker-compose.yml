@@ -1,0 +1,20 @@
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    container_name: luxmedicine-db
+    environment:
+      POSTGRES_USER: luxmed
+      POSTGRES_PASSWORD: luxmed
+      POSTGRES_DB: luxmedicine
+    ports:
+      - "5433:5432"
+    volumes:
+      - luxmedicine-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U luxmed -d luxmedicine"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  luxmedicine-pgdata:
