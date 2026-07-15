@@ -152,6 +152,13 @@ async def test_damaged_chunks_never_reach_the_corpus(session):
 
     Runs against the real 163-page guideline with a fake embedder: the vectors are
     irrelevant, what is under test is which chunks got written.
+
+    **Never commits.** The first version did, and 163 pages of chunks flooded the shared
+    corpus — test_a_query_finds_the_matching_chunk started expecting 2 hits and getting 1,
+    because a neighbouring test's passage had been pushed out of the result window by
+    several hundred pages of nephrology. The suite is additive by design and this is the
+    largest thing anyone has put in it. Asserting inside the transaction and rolling back
+    proves exactly the same thing and leaves nothing behind.
     """
     import uuid
 
@@ -178,7 +185,6 @@ async def test_damaged_chunks_never_reach_the_corpus(session):
     await session.flush()
 
     result = await index_version(session, version.id, FakeEmbedder())
-    await session.commit()
 
     assert result.rejected_chunks > 0, "the damaged chunks were written, not rejected"
     assert result.damaged_pages, "and the report says nothing about where"
@@ -195,3 +201,7 @@ async def test_damaged_chunks_never_reach_the_corpus(session):
         f"{len(leaked)} corrupted chunk(s) reached the corpus. #19 would bless every "
         f"quote from them: {leaked[0][:70]!r}"
     )
+
+    # See the docstring: committing this would put 163 pages of nephrology into every
+    # other test's corpus.
+    await session.rollback()
