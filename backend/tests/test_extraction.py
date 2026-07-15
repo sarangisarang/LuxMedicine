@@ -44,6 +44,26 @@ def guideline(tmp_path) -> Path:
 # --- the ledger --------------------------------------------------------------------
 
 
+def test_text_built_from_lines_matches_extract_text(guideline):
+    """The canary for the whole line-level design.
+
+    We assemble text from extract_text_lines() rather than extract_text() so each line
+    carries the font metadata that separates a heading from a dose. That is only free
+    while the two agree byte for byte — if pdfplumber ever diverges them, stored text
+    would shift under already-ingested documents, and archived versions would stop
+    reproducing the answers they were cited in.
+
+    So this asserts the equivalence rather than trusting it. If it fails, that is a
+    migration decision, not a test to relax.
+    """
+    import pdfplumber
+
+    with pdfplumber.open(guideline) as pdf:
+        for index, page in enumerate(pdf.pages):
+            from_lines = extract_pdf(guideline).pages[index].text
+            assert from_lines == (page.extract_text() or "")
+
+
 def test_every_page_is_recorded_in_order(guideline):
     doc = extract_pdf(guideline)
 
