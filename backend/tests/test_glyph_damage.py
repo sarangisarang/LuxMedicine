@@ -99,7 +99,24 @@ def test_the_real_guideline_is_damaged_and_extraction_says_so():
     assert doc.glyph_damage, "the damage is real and extraction must report it"
     assert len(doc.damaged_pages) == 18
     assert doc.damage_ratio(len(doc.pages)) == pytest.approx(0.11, abs=0.01)
-    assert sum(d.count for d in doc.glyph_damage) == 278
+
+    # Against page.chars, not against a number I once wrote down. A glyph is a property
+    # of the PDF: no extraction strategy can change how many there are. Column-aware
+    # extraction (#42) briefly reported 292 — 14 characters read twice at band boundaries,
+    # because crop() takes everything that *intersects* the box. Pinning the literal 278
+    # would have caught that as "the fixture changed"; comparing to the source catches it
+    # as what it was.
+    import pdfplumber
+
+    with pdfplumber.open(KDIGO) as pdf:
+        truth = sum(
+            1 for page in pdf.pages for c in page.chars if c["text"].startswith("(cid:")
+        )
+
+    assert sum(d.count for d in doc.glyph_damage) == truth, (
+        "extraction reports a different number of unresolved glyphs than the PDF has — "
+        "characters are being read twice, or dropped"
+    )
 
     # The page numbers are the point: an operator can open the PDF there and judge.
     assert 8 in doc.damaged_pages

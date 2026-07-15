@@ -43,7 +43,7 @@ from pathlib import Path
 
 import pdfplumber
 
-from app.services.columns import find_gutter
+from app.services.columns import find_regions
 
 # Pages are joined by a blank line. It belongs to no page: a chunk boundary landing in
 # the gap resolves to the page before it, which is where its text actually came from.
@@ -198,19 +198,39 @@ def _lines_in_reading_order(page) -> list[dict]:
     no worse than it is now.
     """
     tables = [table.bbox for table in page.find_tables()]
-    gutter = find_gutter(page.chars, page_width=page.width, table_bboxes=tables)
+    regions = find_regions(
+        page.chars,
+        page_width=page.width,
+        page_height=page.height,
+        table_bboxes=tables,
+    )
 
-    if gutter is None:
+    if not any(region.is_two_column for region in regions):
         return page.extract_text_lines(return_chars=True)
 
-    # Left column top to bottom, then right. The offsets recorded by the caller follow
-    # this order, so a citation's span resolves to the page it was read from — the ledger
-    # describes the text as assembled, which is the only text anything ever sees.
-    left = page.crop((0, 0, gutter.x, page.height))
-    right = page.crop((gutter.x, 0, page.width, page.height))
-    return left.extract_text_lines(return_chars=True) + right.extract_text_lines(
-        return_chars=True
-    )
+    lines: list[dict] = []
+    for region in regions:
+        # `filter`, not `crop`. crop() selects every object that *intersects* the box, so
+        # a character whose box straddles a band boundary is handed to both bands and its
+        # text lands in the corpus twice. Measured: 292 unresolved glyphs extracted where
+        # page.chars has 278 — 14 read twice on three pages, and the second copy came back
+        # as character-interleaved nonsense ("AIFbCbCr-eHvbiaAt1iocn"). filter() assigns
+        # each character to exactly one band by where it starts.
+        band = page.filter(
+            lambda obj, r=region: r.top <= obj.get("top", -1) < r.bottom
+        )
+        if region.gutter is None:
+            # A figure, a heading, a table across the page. Read across, in place.
+            lines.extend(band.extract_text_lines(return_chars=True))
+            continue
+        # Left column of this band, then right. Bands stay in page order, so a figure
+        # between two column regions stays between them rather than migrating to the top.
+        gutter_x = region.gutter.x
+        left = band.filter(lambda obj, g=gutter_x: obj.get("x1", 0) <= g)
+        right = band.filter(lambda obj, g=gutter_x: obj.get("x0", 0) >= g)
+        lines.extend(left.extract_text_lines(return_chars=True))
+        lines.extend(right.extract_text_lines(return_chars=True))
+    return lines
 
 
 def _modal_size(sizes: list[float]) -> float:

@@ -151,3 +151,110 @@ def crosses(gutter: Gutter, bbox: tuple[float, float, float, float]) -> bool:
     """
     x0, _, x1, _ = bbox
     return x0 < gutter.x0 and x1 > gutter.x1
+
+
+# Rows this tall. Fine enough to find the boundary between a figure and the text under
+# it; coarse enough that a superscript does not split a band.
+ROW_HEIGHT = 4.0
+
+# Bands shorter than this are not layout: a two-line gap between a heading and a caption
+# is not a column region, and cropping one splits a heading in half.
+#
+# In *points*, and named so. The first version was MIN_BAND_ROWS = 6, which read as "six
+# lines of text" and counted six 4pt slices — about two lines. A mutation run deleted it
+# and nothing failed, because the guard was doing roughly nothing: the name promised one
+# thing and the unit delivered another. 48pt is three lines of 16pt body text.
+MIN_BAND_HEIGHT = 48.0
+
+# Rows this far apart belong to different bands even if they agree — the gap between a
+# figure and the body text is itself a boundary.
+MAX_ROW_GAP = 3
+
+
+@dataclass(frozen=True)
+class Region:
+    """A horizontal band of a page, and the gutter inside it if there is one."""
+
+    top: float
+    bottom: float
+    gutter: Gutter | None
+
+    @property
+    def is_two_column(self) -> bool:
+        return self.gutter is not None
+
+
+def find_regions(
+    chars: list[dict],
+    *,
+    page_width: float,
+    page_height: float,
+    table_bboxes: list[tuple[float, float, float, float]] | None = None,
+) -> list[Region]:
+    """Split a page into bands and find the gutter in each.
+
+    **Why bands and not a page.** Projecting the whole page height means one full-width
+    figure fills the gutter and the entire page reads as single-column — which is how six
+    clinically-loaded welds survived the first fix. Measured on KDIGO p60: a figure
+    occupies rows 220-276, and the 103 rows of two-column body text below it were being
+    read across because of it.
+
+    **Why not just a better threshold.** The obvious repair is to ask "is the centre clear
+    in most rows" and pick a number. Measured across all 163 pages, that number does not
+    exist: the distribution runs continuously from 27% to 100% with 16 pages sitting in
+    the 55-75% band where any threshold would have to go. Those pages are not ambiguous,
+    they are *mixed* — a figure above, columns below. The question "is this page
+    two-column" has no answer. "Is this band two-column" does.
+
+    Each band is then handed to `find_gutter`, so every guard that protects a page
+    protects a band: too little text, too narrow a gap, one empty side, a table across
+    the middle. A band of six short lines with a coincidental gap in the middle is
+    refused for the same reasons a page would be.
+    """
+    if not chars:
+        return [Region(top=0.0, bottom=page_height, gutter=None)]
+
+    mid = page_width / 2
+    occupied_rows: dict[int, bool] = {}
+    for char in chars:
+        row = int(char["top"] // ROW_HEIGHT)
+        occupied_rows.setdefault(row, False)
+        if char["x0"] <= mid <= char["x1"]:
+            occupied_rows[row] = True
+
+    # Contiguous runs of rows that agree about the centre.
+    bands: list[tuple[int, int, bool]] = []
+    for row in sorted(occupied_rows):
+        crosses_centre = occupied_rows[row]
+        if bands and bands[-1][2] == crosses_centre and row - bands[-1][1] <= MAX_ROW_GAP:
+            bands[-1] = (bands[-1][0], row, crosses_centre)
+        else:
+            bands.append((row, row, crosses_centre))
+
+    regions: list[Region] = []
+    for lo, hi, crosses_centre in bands:
+        top = lo * ROW_HEIGHT
+        bottom = (hi + 1) * ROW_HEIGHT
+        # `crosses_centre` here is an optimisation, not a guard: find_gutter refuses a
+        # band whose centre is occupied anyway, because there is no empty band to find.
+        # Skipping the call is free; relying on it as protection would not be, so the
+        # height check below is the one that has to hold.
+        if crosses_centre or (bottom - top) < MIN_BAND_HEIGHT:
+            regions.append(Region(top=top, bottom=bottom, gutter=None))
+            continue
+
+        band_chars = [c for c in chars if top <= c["top"] < bottom]
+        band_tables = [
+            b for b in (table_bboxes or []) if not (b[3] < top or b[1] > bottom)
+        ]
+        regions.append(
+            Region(
+                top=top,
+                bottom=bottom,
+                gutter=find_gutter(
+                    band_chars, page_width=page_width, table_bboxes=band_tables
+                ),
+            )
+        )
+
+    return regions

@@ -299,3 +299,119 @@ def test_the_left_column_is_read_before_the_right():
     assert left_side < right_side, (
         "the right column is being read before the left — the page is backwards"
     )
+
+
+# --- bands, because a page is not homogeneous ---------------------------------------
+
+
+def test_a_figure_across_the_middle_no_longer_hides_the_columns():
+    """The bug that survived the first fix.
+
+    Projecting the whole page height means one full-width element fills the gutter and
+    the page reads as single-column. Measured on KDIGO p60: a figure at rows 220-276 was
+    hiding 103 rows of two-column body text below it, and six clinically-loaded welds
+    lived on pages exactly like it.
+    """
+    from app.services.columns import find_regions
+
+    chars = two_column_chars()  # rows 0..39, gutter at 300
+    # A caption straight across the middle, in the band above.
+    chars += [FakeChar(x, x + 5, 480, 490) for x in range(40, 560, 6)]
+
+    assert find_gutter(chars, page_width=600) is None, (
+        "whole-page projection is blind to this — that is the bug"
+    )
+
+    regions = find_regions(chars, page_width=600, page_height=600)
+    two_col = [r for r in regions if r.is_two_column]
+
+    assert two_col, "the columns above the figure must still be found"
+    assert any(not r.is_two_column for r in regions), "the figure's band is not two-column"
+
+
+def test_a_band_of_short_lines_is_not_two_columns():
+    """A clear centre in a band does not prove two columns: six short lines have a clear
+    centre too. Every guard that protects a page has to protect a band, or segmentation
+    just makes the detector wrong more precisely."""
+    from app.services.columns import find_regions
+
+    chars = [FakeChar(40 + i * 6, 45 + i * 6, row * 12.0, row * 12.0 + 10)
+             for row in range(8) for i in range(10)]  # short lines, left side only
+
+    regions = find_regions(chars, page_width=600, page_height=600)
+
+    assert not any(r.is_two_column for r in regions)
+
+
+def test_regions_stay_in_page_order():
+    """A figure between two column regions must stay between them. Reordering bands would
+    move a caption to the top of the page and attach it to the wrong thing — the same
+    class of error as reading the columns backwards."""
+    from app.services.columns import find_regions
+
+    chars = two_column_chars()
+    chars += [FakeChar(x, x + 5, 480, 490) for x in range(40, 560, 6)]
+
+    regions = find_regions(chars, page_width=600, page_height=600)
+    tops = [r.top for r in regions]
+
+    assert tops == sorted(tops)
+
+
+@pytest.mark.skipif(not KDIGO.exists(), reason="needs storage/kdigo_2012_ckd.pdf")
+def test_no_surviving_weld_carries_clinical_content():
+    """The number that decides whether this is finished.
+
+    205 welded lines originally; 53 after cropping whole pages; 15 after segmenting them
+    into bands. What matters is not the count but what is in them: 6 of the 53 welded a
+    dose, a recommendation, or clinical vocabulary — 'subgroup with eGFR 45-59ml/min/1.73m2,
+    the com- If cystatin C testing is desired'. None of the 15 do. The remainder are
+    author lists and references: untidy, and unable to mislead anyone about a dose.
+    """
+    import re
+
+    from app.services.extraction import extract_pdf
+
+    weld = re.compile(r"[a-z]{3,}-\s+[a-z]", re.I)
+    clinical = re.compile(
+        r"\b\d+(\.\d+)?\s?(mg|mcg|g|ml|mmol|units?)\b"
+        r"|\bwe (recommend|suggest)\b"
+        r"|\b(GFR|eGFR|creatinine|albuminuria|dialysis)\b",
+        re.I,
+    )
+
+    doc = extract_pdf(KDIGO)
+    dangerous = [
+        line.text
+        for line in doc.lines
+        if weld.search(line.text) and clinical.search(line.text)
+    ]
+
+    assert not dangerous, (
+        f"{len(dangerous)} welded line(s) carry clinical content, e.g. {dangerous[0][:90]!r}"
+    )
+
+
+def test_a_short_dense_band_is_refused_by_height_not_by_luck():
+    """MIN_BAND_HEIGHT, reached on purpose.
+
+    The first version was MIN_BAND_ROWS = 6, which read as "six lines" and counted six
+    4pt slices — about two lines of text. A mutation deleted it and nothing failed. The
+    input below is exactly what it is supposed to stop: a short band, dense enough to
+    pass MIN_CHARS, with both sides populated and a real gap between them. find_gutter
+    alone accepts it; only the height check refuses.
+    """
+    from app.services.columns import find_gutter, find_regions
+
+    chars = []
+    for row in range(3):
+        y = row * 12.0
+        for x in range(40, 288, 2):
+            chars.append(FakeChar(x, x + 1, y, y + 10))
+        for x in range(312, 560, 2):
+            chars.append(FakeChar(x, x + 1, y, y + 10))
+
+    assert find_gutter(chars, page_width=600) is not None, "the guard must be reachable"
+    assert not any(
+        r.is_two_column for r in find_regions(chars, page_width=600, page_height=600)
+    ), "a 36pt band is a heading, not a column region"
