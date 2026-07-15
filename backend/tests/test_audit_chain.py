@@ -13,11 +13,19 @@ import pytest
 from app.models.audit import GENESIS_HASH, AuditLog
 from app.services.audit import compute_row_hash, sha256_text
 
+# This module's own clinic. The suite is additive and shares one database, so two
+# modules sharing a clinic would share a chain -- and a chain test passing because
+# of another module's rows proves nothing.
+CLINIC = "clinic-audit-chain"
+
+
+
 
 def make_row(**overrides) -> AuditLog:
     defaults = dict(
         prev_hash=GENESIS_HASH,
         actor_id="dr-001",
+        clinic_id=CLINIC,
         query_id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
         query_hash=sha256_text("target dose of enalapril?"),
         retrieved_chunk_ids=[uuid.UUID("22222222-2222-2222-2222-222222222222")],

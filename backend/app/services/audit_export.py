@@ -174,11 +174,17 @@ class AuditExport:
 async def export_audit(
     session: AsyncSession,
     *,
+    clinic_id: str,
     actor_id: str | None = None,
     since: datetime | None = None,
     until: datetime | None = None,
 ) -> AuditExport:
-    """Reconstruct the trail for an actor and/or a time range.
+    """Reconstruct one clinic's trail, optionally for an actor and/or a time range.
+
+    `clinic_id` is required. Chains are per clinic (0011), so "the chain" is not a thing
+    that can be verified any more — only a clinic's chain is. An export whose header said
+    `chain_intact` while checking a different tenant's chain would be worse than one that
+    said nothing.
 
     Read-only. Verifies the chain first: if it is broken there is no point rendering
     entries that may have been rewritten, and saying so is the honest output.
@@ -186,12 +192,12 @@ async def export_audit(
     chain_intact = True
     chain_break: str | None = None
     try:
-        await verify_chain(session)
+        await verify_chain(session, clinic_id=clinic_id)
     except ChainBreak as exc:
         chain_intact = False
         chain_break = str(exc)
 
-    statement = select(AuditLog).order_by(AuditLog.seq)
+    statement = select(AuditLog).where(AuditLog.clinic_id == clinic_id).order_by(AuditLog.seq)
     if actor_id is not None:
         statement = statement.where(AuditLog.actor_id == actor_id)
     if since is not None:

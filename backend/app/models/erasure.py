@@ -15,7 +15,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, String
+from sqlalchemy import BigInteger, DateTime, Index, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -47,6 +47,9 @@ class LegalBasis(str, enum.Enum):
 
 class ErasureLog(Base):
     __tablename__ = "erasure_log"
+    __table_args__ = (
+        Index("ix_erasure_log_clinic_seq", "clinic_id", "seq"),
+    )
 
     seq: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
 
@@ -56,6 +59,10 @@ class ErasureLog(Base):
     # A random UUID (`uuid4`), not derived from the question. Recording it points at a
     # row whose content is gone; it does not reconstitute it.
     query_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True)
+
+    # Taken from the query, not passed in: the erasure record belongs to the same chain
+    # as the thing it erased.
+    clinic_id: Mapped[str] = mapped_column(String(128))
 
     # From the token (#30). Never from a request body — an erasure attributed to whoever
     # the client says performed it is not a record of who performed it.

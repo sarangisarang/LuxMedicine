@@ -4,6 +4,18 @@ The chain: row_hash = sha256(prev_hash || canonical(payload)). Editing or removi
 any row invalidates every row after it, so tampering is detectable even by someone
 with direct database access — which is the whole point, since a log the operator can
 silently rewrite is not evidence.
+
+**One chain per clinic** (#31, migration 0011). Not a scaling decision — a global chain
+and per-tenant row-level security are incompatible, and that was measured rather than
+guessed: a tenant who can only see their own rows sees seqs [1, 3, 5] of a five-row chain
+and reports a break at seq=3. Every row they cannot see is a link they cannot follow. A
+chain the tenant cannot verify is, from their side, a log with extra steps.
+
+**The payload is frozen now, for real.** Adding any key to `_row_payload` changes
+`_canonical`'s bytes for every row already written and fails all of them. 0011 could add
+`clinic_id` only because no row existed anywhere. The next such change needs a per-row
+payload version; there is a test pinning the key set so nobody discovers this by breaking
+production.
 """
 
 import hashlib
@@ -20,12 +32,26 @@ from app.models.erasure import ERASURE_GENESIS_HASH, ErasureLog, LegalBasis
 from app.models.query import Query
 from app.schemas.answer import AnswerPayload
 
-# Namespaced lock id for pg_advisory_xact_lock. Any constant works; it just has to
-# be the same everywhere so all appenders contend on the same lock.
-_CHAIN_LOCK_ID = 0x4C55584D  # "LUXM"
-# A separate lock: the erasure chain has its own tail, and sharing a lock would make
-# every erasure contend with every query for no reason.
-_ERASURE_LOCK_ID = 0x4C555845  # "LUXE"
+# Namespace for pg_advisory_xact_lock's two-argument form. The second argument is the
+# clinic, so appenders contend only with their own clinic's appenders — which is all the
+# chain requires now that each clinic has its own. The one-argument version serialised
+# every append in the system against every other, and two clinics never had a reason to
+# wait on each other.
+_CHAIN_LOCK_NS = 0x4C55584D  # "LUXM"
+_ERASURE_LOCK_NS = 0x4C555845  # "LUXE"
+
+
+def _lock_key(clinic_id: str) -> int:
+    """A stable int32 for a clinic, for the advisory lock's second argument.
+
+    Python's hash() is salted per process, so two workers would derive different keys for
+    the same clinic and never contend — the lock would silently stop working. sha256 is
+    stable across processes, machines and restarts, which is the only property needed
+    here. Collisions between clinics cost a little contention and nothing else: the lock
+    is an optimisation over the row_hash unique constraint, which remains the guarantee.
+    """
+    digest = hashlib.sha256(clinic_id.encode("utf-8")).digest()
+    return int.from_bytes(digest[:4], "big", signed=True)
 
 
 def sha256_text(value: str) -> str:
@@ -52,7 +78,7 @@ def salted_hash(salt: str, value: str) -> str:
     return hashlib.sha256((salt + value).encode("utf-8")).hexdigest()
 
 
-def make_query(*, actor_id: str, text: str, language: str | None = None) -> Query:
+def make_query(*, actor_id: str, clinic_id: str, text: str, language: str | None = None) -> Query:
     """The only way to build a Query. Salt and hash are produced together.
 
     Constructing one by hand means passing `text_hash` and `text_salt` separately, and
@@ -64,6 +90,7 @@ def make_query(*, actor_id: str, text: str, language: str | None = None) -> Quer
     salt = new_salt()
     return Query(
         actor_id=actor_id,
+        clinic_id=clinic_id,
         text=text,
         text_salt=salt,
         text_hash=salted_hash(salt, text),
@@ -84,6 +111,9 @@ def _row_payload(row: AuditLog) -> dict:
     """
     return {
         "actor_id": row.actor_id,
+        # In the payload, not merely a column: without it, someone who can write to the
+        # table could move a row to another clinic and the chain would still verify.
+        "clinic_id": row.clinic_id,
         "query_id": str(row.query_id),
         "query_hash": row.query_hash,
         "retrieved_chunk_ids": [str(c) for c in row.retrieved_chunk_ids],
@@ -126,12 +156,26 @@ async def append_audit_entry(
             "erasure in #28 could not remove them. Build queries with make_query()."
         )
 
-    # Serialises appenders. Without it, two concurrent requests both read the same
-    # tail and write rows claiming the same prev_hash — a forked chain that verifies
-    # as tampered. The row_hash unique constraint is the backstop, not the mechanism.
-    await session.execute(text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": _CHAIN_LOCK_ID})
+    # Serialises appenders *within a clinic*. Without it, two concurrent requests both
+    # read the same tail and write rows claiming the same prev_hash — a forked chain that
+    # verifies as tampered. The row_hash unique constraint is the backstop, not the
+    # mechanism. Scoped to the clinic because the chain is: clinic-b's appends cannot
+    # fork clinic-a's chain, so making them wait for it was pure lost throughput.
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(:ns, :clinic)"),
+        {"ns": _CHAIN_LOCK_NS, "clinic": _lock_key(query.clinic_id)},
+    )
 
-    tail = (await session.execute(select(AuditLog).order_by(AuditLog.seq.desc()).limit(1))).scalar_one_or_none()
+    tail = (
+        await session.execute(
+            select(AuditLog)
+            .where(AuditLog.clinic_id == query.clinic_id)
+            .order_by(AuditLog.seq.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    # Each clinic starts at genesis. seq stays globally sequential (it is a bigserial and
+    # nothing depends on it being dense); the *chain* is what is per-clinic.
     prev_hash = tail.row_hash if tail else GENESIS_HASH
 
     response_json = response.model_dump(mode="json")
@@ -139,6 +183,9 @@ async def append_audit_entry(
     row = AuditLog(
         prev_hash=prev_hash,
         actor_id=actor_id,
+        # From the query, never a separate argument. Two arguments that must agree
+        # eventually will not, and a mismatch here puts a row on the wrong clinic's chain.
+        clinic_id=query.clinic_id,
         query_id=query.id,
         query_hash=query.text_hash,
         retrieved_chunk_ids=retrieved_chunk_ids,
@@ -171,23 +218,53 @@ class ChainBreak(Exception):  # noqa: N818
         self.reason = reason
 
 
-async def verify_chain(session: AsyncSession, *, start_seq: int = 0) -> int:
-    """Walk the chain and confirm every link. Returns the number of rows verified.
+async def clinics_with_audit_rows(session: AsyncSession) -> list[str]:
+    """Every clinic that has a chain. There is no global chain to walk any more, so a
+    system-wide verification is this list, one clinic at a time."""
+    return list(
+        (await session.execute(select(AuditLog.clinic_id).distinct())).scalars().all()
+    )
 
-    Run it in CI against a seeded database, and on a schedule in production — a chain
-    nobody checks proves nothing.
+
+async def verify_chain(session: AsyncSession, *, clinic_id: str, start_seq: int = 0) -> int:
+    """Walk one clinic's chain and confirm every link. Returns rows verified.
+
+    `clinic_id` is required rather than optional-with-a-default. A default would make
+    "verify everything" the easy call and "verify this tenant" the deliberate one, and it
+    is the tenant's chain that has to be verifiable — by them, with no sight of anyone
+    else's rows. That is the whole reason the chains were split (0011).
+
+    Run it on a schedule (#29) — a chain nobody checks proves nothing.
     """
     rows = (
-        await session.execute(select(AuditLog).where(AuditLog.seq > start_seq).order_by(AuditLog.seq))
+        await session.execute(
+            select(AuditLog)
+            .where(AuditLog.clinic_id == clinic_id, AuditLog.seq > start_seq)
+            .order_by(AuditLog.seq)
+            # Read the table, not the session. Without this the identity map hands back
+            # rows this session loaded earlier and SQLAlchemy leaves their attributes
+            # alone — so the verifier hashes what it remembers instead of what is stored,
+            # and a row forged on disk verifies clean. Found by a test that forged a row
+            # and was told the chain was intact: the DB said 'forged', the ORM said
+            # 'dr-001', and compute_row_hash agreed with the ORM.
+            #
+            # The one function whose entire job is to read what is actually on disk must
+            # not be served from a cache.
+            .execution_options(populate_existing=True)
+        )
     ).scalars().all()
 
     expected_prev = GENESIS_HASH
     if start_seq > 0:
         anchor = (
-            await session.execute(select(AuditLog).where(AuditLog.seq == start_seq))
+            await session.execute(
+                select(AuditLog)
+                .where(AuditLog.clinic_id == clinic_id, AuditLog.seq == start_seq)
+                .execution_options(populate_existing=True)
+            )
         ).scalar_one_or_none()
         if anchor is None:
-            raise ChainBreak(start_seq, "start_seq does not exist")
+            raise ChainBreak(start_seq, "start_seq does not exist in this clinic's chain")
         expected_prev = anchor.row_hash
 
     for row in rows:
@@ -203,6 +280,7 @@ async def verify_chain(session: AsyncSession, *, start_seq: int = 0) -> int:
 def _erasure_payload(row: ErasureLog) -> dict:
     return {
         "query_id": str(row.query_id),
+        "clinic_id": row.clinic_id,
         "erased_by": row.erased_by,
         "legal_basis": row.legal_basis,
         "erased_at": row.erased_at.astimezone(UTC).isoformat(),
@@ -213,9 +291,20 @@ def compute_erasure_hash(row: ErasureLog) -> str:
     return sha256_text(row.prev_hash + _canonical(_erasure_payload(row)))
 
 
-async def verify_erasure_chain(session: AsyncSession) -> int:
+async def verify_erasure_chain(session: AsyncSession, *, clinic_id: str) -> int:
     rows = (
-        (await session.execute(select(ErasureLog).order_by(ErasureLog.seq))).scalars().all()
+        (
+            await session.execute(
+                select(ErasureLog)
+                .where(ErasureLog.clinic_id == clinic_id)
+                .order_by(ErasureLog.seq)
+                # See verify_chain: a verifier served from its own session's cache
+                # verifies its own memory.
+                .execution_options(populate_existing=True)
+            )
+        )
+        .scalars()
+        .all()
     )
     expected_prev = ERASURE_GENESIS_HASH
     for row in rows:
@@ -264,13 +353,22 @@ async def redact_query(
     query.text_salt = None
     query.redacted_at = datetime.now(UTC)
 
-    await session.execute(text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": _ERASURE_LOCK_ID})
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(:ns, :clinic)"),
+        {"ns": _ERASURE_LOCK_NS, "clinic": _lock_key(query.clinic_id)},
+    )
     tail = (
-        await session.execute(select(ErasureLog).order_by(ErasureLog.seq.desc()).limit(1))
+        await session.execute(
+            select(ErasureLog)
+            .where(ErasureLog.clinic_id == query.clinic_id)
+            .order_by(ErasureLog.seq.desc())
+            .limit(1)
+        )
     ).scalar_one_or_none()
 
     record = ErasureLog(
         prev_hash=tail.row_hash if tail else ERASURE_GENESIS_HASH,
+        clinic_id=query.clinic_id,
         # Safe to record: uuid4, not derived from the question. This is the recursion the
         # issue warns about, and the answer is that nothing here is a function of the
         # content — not the id, and not `legal_basis`, which is an enum precisely so that

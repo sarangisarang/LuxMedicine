@@ -26,6 +26,11 @@ from app.services.audit import (
     verify_erasure_chain,
 )
 
+# This module's own clinic. The suite is additive and shares one database, so two
+# modules sharing a clinic would share a chain -- and a chain test passing because
+# of another module's rows proves nothing.
+CLINIC = "clinic-erasure"
+
 # The attacker's candidate space, built the way an attacker would: this is a clinical
 # search engine, so the questions are clinical. Small here to keep the suite fast; the
 # point is the *shape* of the space, and the real one is enumerable too.
@@ -60,7 +65,7 @@ def brute_force_salted(target_hash: str, salt: str | None) -> str | None:
 
 
 async def ask(session: AsyncSession, question: str = SECRET) -> tuple[Query, int]:
-    query = make_query(actor_id="dr-001", text=question, language="en")
+    query = make_query(actor_id="dr-001", clinic_id=CLINIC, text=question, language="en")
     session.add(query)
     await session.flush()
 
@@ -161,21 +166,28 @@ async def test_erasure_does_not_break_the_chain(session):
     salt lives in `queries` precisely so erasure never needs to write to the one table
     that cannot be written to."""
     query, _ = await ask(session)
-    before = await verify_chain(session)
+    before = await verify_chain(session, clinic_id=CLINIC)
 
     await redact_query(
         session, query.id, erased_by="dpo-001", legal_basis=LegalBasis.OBJECTION_UPHELD
     )
     await session.commit()
 
-    assert await verify_chain(session) == before, "the chain still verifies, row for row"
+    assert await verify_chain(session, clinic_id=CLINIC) == before, (
+        "the chain still verifies, row for row"
+    )
 
 
 async def test_a_salt_less_query_is_refused_rather_than_hashed_plainly(session):
     """A pre-0010 row, or an already-erased one. Falling back to sha256 would produce a
     row that looks audited and is permanently un-erasable."""
     query = Query(
-        actor_id="dr-001", text="x", text_hash=sha256_text("x"), text_salt=None, language="en"
+        actor_id="dr-001",
+        clinic_id=CLINIC,
+        text="x",
+        text_hash=sha256_text("x"),
+        text_salt=None,
+        language="en",
     )
     session.add(query)
     await session.flush()
@@ -313,7 +325,7 @@ async def test_the_erasure_chain_verifies(session):
         )
     await session.commit()
 
-    assert await verify_erasure_chain(session) >= 2
+    assert await verify_erasure_chain(session, clinic_id=CLINIC) >= 2
 
 
 # --- idempotence -------------------------------------------------------------------
@@ -348,8 +360,8 @@ async def test_erasing_twice_does_not_move_the_timestamp(session):
     )
     await session.commit()
     first = (
-        await session.execute(select(Query).where(Query.id == query_id))
-    ).scalar_one().redacted_at
+        (await session.execute(select(Query).where(Query.id == query_id))).scalar_one().redacted_at
+    )
 
     await redact_query(
         session, query_id, erased_by="dpo-002", legal_basis=LegalBasis.OBJECTION_UPHELD
@@ -357,8 +369,8 @@ async def test_erasing_twice_does_not_move_the_timestamp(session):
     await session.commit()
 
     again = (
-        await session.execute(select(Query).where(Query.id == query_id))
-    ).scalar_one().redacted_at
+        (await session.execute(select(Query).where(Query.id == query_id))).scalar_one().redacted_at
+    )
     assert again == first
 
 
@@ -366,7 +378,7 @@ async def test_erasing_twice_does_not_move_the_timestamp(session):
 
 
 def test_make_query_produces_a_hash_that_matches_its_salt():
-    query = make_query(actor_id="dr-001", text=SECRET)
+    query = make_query(actor_id="dr-001", clinic_id=CLINIC, text=SECRET)
 
     assert query.text_salt is not None
     assert query.text_hash == salted_hash(query.text_salt, SECRET)
@@ -377,7 +389,7 @@ def test_two_identical_questions_get_different_hashes():
     audit cannot group by "same question asked" any more. That capability was the
     brute-force primitive — an index of which hash means which question is exactly what
     an attacker builds."""
-    a = make_query(actor_id="dr-001", text=SECRET)
-    b = make_query(actor_id="dr-002", text=SECRET)
+    a = make_query(actor_id="dr-001", clinic_id=CLINIC, text=SECRET)
+    b = make_query(actor_id="dr-002", clinic_id=CLINIC, text=SECRET)
 
     assert a.text_hash != b.text_hash

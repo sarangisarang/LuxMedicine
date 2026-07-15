@@ -57,16 +57,19 @@ class VerificationResult:
         return not self.intact and self.previous_checkpoint_at is not None
 
 
-async def latest_checkpoint(session: AsyncSession) -> ChainCheckpoint | None:
+async def latest_checkpoint(session: AsyncSession, *, clinic_id: str) -> ChainCheckpoint | None:
     return (
         await session.execute(
-            select(ChainCheckpoint).order_by(ChainCheckpoint.id.desc()).limit(1)
+            select(ChainCheckpoint)
+            .where(ChainCheckpoint.clinic_id == clinic_id)
+            .order_by(ChainCheckpoint.id.desc())
+            .limit(1)
         )
     ).scalar_one_or_none()
 
 
 async def verify_and_checkpoint(
-    session: AsyncSession, *, verified_by: str = "scheduled"
+    session: AsyncSession, *, clinic_id: str, verified_by: str = "scheduled"
 ) -> VerificationResult:
     """Verify the whole chain and, if intact, record a checkpoint. Commits.
 
@@ -77,11 +80,11 @@ async def verify_and_checkpoint(
     answer is an external checkpoint that can be trusted, not a cheaper local one that
     cannot.
     """
-    previous = await latest_checkpoint(session)
+    previous = await latest_checkpoint(session, clinic_id=clinic_id)
     previous_at = previous.verified_at if previous else None
 
     try:
-        entries = await verify_chain(session)
+        entries = await verify_chain(session, clinic_id=clinic_id)
     except ChainBreak as exc:
         # No checkpoint on a break. A checkpoint asserts the chain was sound; writing one
         # now would assert something false, and it is the one record that must not.
@@ -93,7 +96,12 @@ async def verify_and_checkpoint(
         )
 
     tail = (
-        await session.execute(select(AuditLog).order_by(AuditLog.seq.desc()).limit(1))
+        await session.execute(
+            select(AuditLog)
+            .where(AuditLog.clinic_id == clinic_id)
+            .order_by(AuditLog.seq.desc())
+            .limit(1)
+        )
     ).scalar_one_or_none()
 
     if tail is None:
@@ -102,6 +110,7 @@ async def verify_and_checkpoint(
         return VerificationResult(intact=True, entries_verified=0, previous_checkpoint_at=previous_at)
 
     checkpoint = ChainCheckpoint(
+        clinic_id=clinic_id,
         verified_through_seq=tail.seq,
         tail_row_hash=tail.row_hash,
         entries_verified=entries,

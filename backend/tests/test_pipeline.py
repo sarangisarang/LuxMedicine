@@ -25,6 +25,12 @@ from app.services.answering import ExtractionResult, SelectedQuote
 from app.services.audit import salted_hash, verify_chain
 from app.services.pipeline import answer_query
 
+# This module's own clinic. The suite is additive and shares one database, so two
+# modules sharing a clinic would share a chain -- and a chain test passing because
+# of another module's rows proves nothing.
+CLINIC = "clinic-pipeline"
+
+
 DIM = get_settings().embedding_dim
 
 # Bisoprolol, not enalapril. The suite is additive and several other modules seed their
@@ -145,7 +151,12 @@ async def test_a_question_produces_an_answer_and_a_trail(session, embedder, corp
     extractor = ScriptedExtractor([DOSE])
 
     answered = await answer_query(
-        session, question="bisoprolol dose?", actor_id="dr-001", embedder=embedder, extractor=extractor
+        session,
+        question="bisoprolol dose?",
+        actor_id="dr-001",
+        clinic_id=CLINIC,
+        embedder=embedder,
+        extractor=extractor,
     )
 
     assert answered.payload.groups
@@ -165,10 +176,17 @@ async def test_the_audit_records_what_the_clinician_was_shown(session, embedder,
     extractor = ScriptedExtractor([DOSE, "Bisoprolol is contraindicated in pregnancy."])
 
     answered = await answer_query(
-        session, question="bisoprolol dose?", actor_id="dr-001", embedder=embedder, extractor=extractor
+        session,
+        question="bisoprolol dose?",
+        actor_id="dr-001",
+        clinic_id=CLINIC,
+        embedder=embedder,
+        extractor=extractor,
     )
 
-    row = (await session.execute(select(AuditLog).where(AuditLog.seq == answered.audit_seq))).scalar_one()
+    row = (
+        await session.execute(select(AuditLog).where(AuditLog.seq == answered.audit_seq))
+    ).scalar_one()
     quotes = [c["quote"] for g in row.response["groups"] for c in g["citations"]]
 
     assert quotes == [DOSE], "the fabricated quote must not be in the trail as if we showed it"
@@ -178,15 +196,22 @@ async def test_the_audit_records_what_the_clinician_was_shown(session, embedder,
 async def test_the_audit_records_everything_retrieved_not_only_what_was_quoted(
     session, embedder, corpus
 ):
-    """"Which sources did the system look at" is what a dispute asks. Recording only the
+    """ "Which sources did the system look at" is what a dispute asks. Recording only the
     quoted ones would hide the passages it read and discarded."""
     extractor = ScriptedExtractor([DOSE])
 
     answered = await answer_query(
-        session, question="bisoprolol dose?", actor_id="dr-001", embedder=embedder, extractor=extractor
+        session,
+        question="bisoprolol dose?",
+        actor_id="dr-001",
+        clinic_id=CLINIC,
+        embedder=embedder,
+        extractor=extractor,
     )
 
-    row = (await session.execute(select(AuditLog).where(AuditLog.seq == answered.audit_seq))).scalar_one()
+    row = (
+        await session.execute(select(AuditLog).where(AuditLog.seq == answered.audit_seq))
+    ).scalar_one()
 
     assert len(row.retrieved_chunk_ids) == len(answered.hits)
     assert len(answered.hits) > 1, "more was retrieved than was quoted"
@@ -204,11 +229,18 @@ async def test_the_question_is_stored_erasably_and_hashed_into_the_chain(session
     extractor = ScriptedExtractor([DOSE])
 
     answered = await answer_query(
-        session, question=question, actor_id="dr-001", embedder=embedder, extractor=extractor
+        session,
+        question=question,
+        actor_id="dr-001",
+        clinic_id=CLINIC,
+        embedder=embedder,
+        extractor=extractor,
     )
 
     query = (await session.execute(select(Query).where(Query.id == answered.query_id))).scalar_one()
-    row = (await session.execute(select(AuditLog).where(AuditLog.seq == answered.audit_seq))).scalar_one()
+    row = (
+        await session.execute(select(AuditLog).where(AuditLog.seq == answered.audit_seq))
+    ).scalar_one()
 
     assert query.text == question
     assert query.text_salt is not None, "an unsalted question is one that cannot be erased"
@@ -223,10 +255,15 @@ async def test_the_chain_still_verifies_after_a_real_query(session, embedder, co
     extractor = ScriptedExtractor([DOSE])
 
     await answer_query(
-        session, question="bisoprolol dose?", actor_id="dr-001", embedder=embedder, extractor=extractor
+        session,
+        question="bisoprolol dose?",
+        actor_id="dr-001",
+        clinic_id=CLINIC,
+        embedder=embedder,
+        extractor=extractor,
     )
 
-    assert await verify_chain(session) > 0
+    assert await verify_chain(session, clinic_id=CLINIC) > 0
 
 
 # --- failure is auditable ----------------------------------------------------------
@@ -241,14 +278,23 @@ async def test_a_broken_extractor_still_leaves_a_trail(session, embedder, corpus
     extractor = ScriptedExtractor(raises=RuntimeError("the model API fell over"))
 
     answered = await answer_query(
-        session, question="bisoprolol dose?", actor_id="dr-001", embedder=embedder, extractor=extractor
+        session,
+        question="bisoprolol dose?",
+        actor_id="dr-001",
+        clinic_id=CLINIC,
+        embedder=embedder,
+        extractor=extractor,
     )
 
-    row = (await session.execute(select(AuditLog).where(AuditLog.seq == answered.audit_seq))).scalar_one()
+    row = (
+        await session.execute(select(AuditLog).where(AuditLog.seq == answered.audit_seq))
+    ).scalar_one()
 
     assert row.error is not None and "fell over" in row.error
     assert answered.payload.no_answer_reason is NoAnswerReason.SOURCES_DO_NOT_ANSWER
-    assert await verify_chain(session) > 0, "a failed query must not break the chain"
+    assert await verify_chain(session, clinic_id=CLINIC) > 0, (
+        "a failed query must not break the chain"
+    )
 
 
 async def test_a_refusal_leaves_a_clean_trail(session, embedder, corpus):
@@ -256,10 +302,17 @@ async def test_a_refusal_leaves_a_clean_trail(session, embedder, corpus):
     extractor = ScriptedExtractor(None)  # a refusal
 
     answered = await answer_query(
-        session, question="bisoprolol dose?", actor_id="dr-001", embedder=embedder, extractor=extractor
+        session,
+        question="bisoprolol dose?",
+        actor_id="dr-001",
+        clinic_id=CLINIC,
+        embedder=embedder,
+        extractor=extractor,
     )
 
-    row = (await session.execute(select(AuditLog).where(AuditLog.seq == answered.audit_seq))).scalar_one()
+    row = (
+        await session.execute(select(AuditLog).where(AuditLog.seq == answered.audit_seq))
+    ).scalar_one()
 
     assert row.error is None
     assert answered.payload.no_answer_reason is NoAnswerReason.SOURCES_DO_NOT_ANSWER
@@ -272,6 +325,7 @@ async def test_an_empty_corpus_says_the_corpus_is_silent(session, embedder):
         session,
         question="a topic nobody has ever written about anywhere",
         actor_id="dr-001",
+        clinic_id=CLINIC,
         embedder=embedder,
         extractor=extractor,
     )
@@ -280,7 +334,7 @@ async def test_an_empty_corpus_says_the_corpus_is_silent(session, embedder):
         NoAnswerReason.NO_RELEVANT_SOURCES,
         NoAnswerReason.SOURCES_DO_NOT_ANSWER,
     }
-    assert await verify_chain(session) > 0
+    assert await verify_chain(session, clinic_id=CLINIC) > 0
 
 
 # --- what the extractor is handed --------------------------------------------------
@@ -292,7 +346,12 @@ async def test_the_extractor_sees_content_only(session, embedder, corpus):
     extractor = ScriptedExtractor([])
 
     await answer_query(
-        session, question="bisoprolol dose?", actor_id="dr-001", embedder=embedder, extractor=extractor
+        session,
+        question="bisoprolol dose?",
+        actor_id="dr-001",
+        clinic_id=CLINIC,
+        embedder=embedder,
+        extractor=extractor,
     )
 
     [(question, passages)] = extractor.calls
@@ -358,6 +417,7 @@ async def test_extractions_actually_overlap(engine, embedder, corpus):
                 s,
                 question=f"bisoprolol dose, variant {i}?",
                 actor_id=f"dr-{i:03d}",
+                clinic_id=CLINIC,
                 embedder=embedder,
                 extractor=probe,
             )
@@ -372,4 +432,4 @@ async def test_extractions_actually_overlap(engine, embedder, corpus):
     assert len(set(seqs)) == concurrency, "every query got its own audit row"
 
     async with maker() as s:
-        assert await verify_chain(s) > 0
+        assert await verify_chain(s, clinic_id=CLINIC) > 0

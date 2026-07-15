@@ -53,6 +53,12 @@ class RegistrationRequest:
     guideline_type: str | None = None
     published_at: date | None = None
 
+    # None means a published guideline, visible to every clinic. A clinic id means an
+    # upload that belongs to that clinic alone (#31). Required rather than defaulted at
+    # the endpoint: "did you mean this to be public?" is not a question to answer by
+    # omission.
+    clinic_id: str | None = None
+
 
 async def _find_by_hash(session: AsyncSession, file_hash: str) -> DocumentVersion | None:
     return (
@@ -74,6 +80,7 @@ async def _get_or_create_document(session: AsyncSession, req: RegistrationReques
             id=uuid.uuid4(),
             title=req.title,
             issuing_org=str(req.issuing_org),
+            clinic_id=req.clinic_id,
             # Derived, never supplied. Region describes the issuing body's
             # jurisdiction, not the individual document, so accepting it from the
             # caller only re-opens the inconsistency the IssuingOrg enum closes:
@@ -81,12 +88,21 @@ async def _get_or_create_document(session: AsyncSession, req: RegistrationReques
             region=req.issuing_org.region,
             guideline_type=req.guideline_type,
         )
-        .on_conflict_do_nothing(constraint="uq_document_org_title")
+        .on_conflict_do_nothing(constraint="uq_document_clinic_org_title")
     )
+    # Scoped to the clinic, or the lookup would hand clinic-b the Document row clinic-a
+    # created for the same org+title — the two now coexist by design (0011), so a query
+    # that ignores the clinic picks one of them arbitrarily.
+    #
+    # `IS NOT DISTINCT FROM`, not `==`: clinic_id is NULL for published guidelines, and
+    # `clinic_id = NULL` is NULL, never true. That comparison would silently match no row
+    # for every public document in the corpus.
     return (
         await session.execute(
             select(Document).where(
-                Document.issuing_org == str(req.issuing_org), Document.title == req.title
+                Document.issuing_org == str(req.issuing_org),
+                Document.title == req.title,
+                Document.clinic_id.is_not_distinct_from(req.clinic_id),
             )
         )
     ).scalar_one()

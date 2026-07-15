@@ -67,6 +67,7 @@ async def answer_query(
     *,
     question: str,
     actor_id: str,
+    clinic_id: str,
     embedder: Embedder,
     extractor: Extractor,
     limit: int = DEFAULT_LIMIT,
@@ -123,7 +124,9 @@ async def answer_query(
 
     # make_query, not Query(...): the salt and the hash have to be produced together or
     # the row is silently un-erasable. See services/audit.py.
-    query = make_query(actor_id=actor_id, text=question, language=language)
+    query = make_query(
+        actor_id=actor_id, clinic_id=clinic_id, text=question, language=language
+    )
     session.add(query)
     await session.flush()
 

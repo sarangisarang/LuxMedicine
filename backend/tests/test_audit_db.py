@@ -21,9 +21,16 @@ from app.schemas.answer import AnswerPayload, NoAnswerReason
 from app.models.erasure import LegalBasis
 from app.services.audit import append_audit_entry, make_query, redact_query, verify_chain
 
+# This module's own clinic. The suite is additive and shares one database, so two
+# modules sharing a clinic would share a chain -- and a chain test passing because
+# of another module's rows proves nothing.
+CLINIC = "clinic-audit-db"
+
+
+
 
 async def stored_query(session: AsyncSession, question: str = "Target dose of enalapril?") -> Query:
-    query = make_query(actor_id="dr-001", text=question, language="en")
+    query = make_query(actor_id="dr-001", clinic_id=CLINIC, text=question, language="en")
     session.add(query)
     await session.flush()
     return query
@@ -135,7 +142,7 @@ async def test_concurrent_appends_do_not_fork_the_chain(engine):
         prev_hashes = [r.prev_hash for r in rows]
         assert len(set(prev_hashes)) == len(prev_hashes), "two rows share a prev_hash — the chain forked"
 
-        assert await verify_chain(s) == len(rows)
+        assert await verify_chain(s, clinic_id=CLINIC) == len(rows)
 
 
 # --- #5: GDPR erasure --------------------------------------------------------------
@@ -172,7 +179,7 @@ async def test_redaction_clears_text_and_leaves_the_chain_intact(session):
     assert refreshed.text_hash == original_hash, "the hash must survive: it is what still proves what was asked"
 
     # The erasure must not have cost us the trail.
-    assert await verify_chain(session) > 0
+    assert await verify_chain(session, clinic_id=CLINIC) > 0
 
 
 async def test_redaction_is_idempotent(session):

@@ -28,6 +28,9 @@ provider is `OIDC_ISSUER`, not a rewrite. The choice is meant to stay cheap to r
 - *`exp` / `nbf`*, by pyjwt.
 - *`sub`, non-empty.* It becomes `actor_id`, and an audit row attributed to `""` is an
   audit row attributed to nobody.
+- *`clinic_id`, non-empty.* It is the tenant boundary that row-level security enforces
+  (#31). A token without one is refused rather than defaulted: a default tenant is a
+  tenant every misconfigured token silently joins.
 
 **No bypass flag.** A `AUTH_DISABLED=true` for convenient local dev is how production
 ends up unauthenticated — the flag ships, and the failure is silent because everything
@@ -51,12 +54,24 @@ from app.core.config import Settings, get_settings
 # Never the token header's `alg`. See the module docstring.
 ALLOWED_ALGORITHMS = ["RS256"]
 
+# The claim carrying the tenant. A private claim, so it needs a mapper in the realm —
+# see keycloak/realm-luxmedicine.json. Named here rather than inline because it is the
+# single point where the tenant boundary enters the system.
+CLINIC_CLAIM = "clinic_id"
+
 
 @dataclass(frozen=True)
 class Clinician:
     """A verified identity. Constructed only from a validated token."""
 
     actor_id: str
+
+    # The tenant boundary (#31). Row-level security filters on this value, so a
+    # client-settable clinic_id would be a client-settable tenant boundary — every
+    # isolation guarantee in the system reduces to this claim being the issuer's word and
+    # not the caller's.
+    clinic_id: str
+
     email: str | None = None
     name: str | None = None
 
@@ -210,8 +225,22 @@ async def verify_token(token: str, settings: Settings) -> Clinician:
             detail="token has no subject; an audit row attributed to nobody is not an audit row",
         )
 
+    clinic = (claims.get(CLINIC_CLAIM) or "").strip()
+    if not clinic:
+        # No fallback, no default tenant. A token the issuer did not place in a clinic is
+        # a token whose isolation nobody decided, and picking one here would be this code
+        # deciding it. The realm's mapper is what says which clinic a clinician is in.
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=(
+                f"token has no {CLINIC_CLAIM} claim: the tenant boundary must come from "
+                "the issuer, and there is no default clinic to fall back to"
+            ),
+        )
+
     return Clinician(
         actor_id=subject,
+        clinic_id=clinic,
         email=claims.get("email"),
         name=claims.get("name"),
     )

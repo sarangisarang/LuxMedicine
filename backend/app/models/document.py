@@ -41,11 +41,31 @@ class Document(Base):
     __tablename__ = "documents"
     # The natural key. Without it two rows can describe the same guideline, versions
     # scatter across both, and supersession silently marks the wrong predecessor.
-    __table_args__ = (UniqueConstraint("issuing_org", "title", name="uq_document_org_title"),)
+    __table_args__ = (
+        # Scoped to the clinic: without it, clinic-b cannot upload a protocol whose title
+        # clinic-a already used, and the rejection tells them clinic-a has it.
+        #
+        # NULLS NOT DISTINCT because clinic_id is NULL for published guidelines, and a
+        # plain UNIQUE treats NULLs as distinct — it would quietly stop constraining the
+        # public corpus, which is where duplicates actually matter.
+        UniqueConstraint(
+            "clinic_id",
+            "issuing_org",
+            "title",
+            name="uq_document_clinic_org_title",
+            postgresql_nulls_not_distinct=True,
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     title: Mapped[str] = mapped_column(String(512))
     issuing_org: Mapped[str] = mapped_column(String(128), index=True)
+
+    # NULL means a published guideline — ESC, EASD, ESMO — belonging to every clinic.
+    # NOT NULL means one clinic's own uploaded protocol. This is the only column in the
+    # system where "no clinic" is a real answer rather than a gap; everywhere else a
+    # missing clinic is a row row-level security cannot place.
+    clinic_id: Mapped[str | None] = mapped_column(String(128), index=True)
     region: Mapped[str | None] = mapped_column(String(64), index=True)
     guideline_type: Mapped[str | None] = mapped_column(String(128))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -33,6 +33,11 @@ class Query(Base):
     # Opaque clinician identifier. Never a name — resolve against your IdP.
     actor_id: Mapped[str] = mapped_column(String(128), index=True)
 
+    # Which clinic asked. From the token, never a request body — same discipline as
+    # actor_id, and for a sharper reason: this is the value row-level security filters on,
+    # so a client-settable clinic_id is a client-settable tenant boundary.
+    clinic_id: Mapped[str] = mapped_column(String(128), index=True)
+
     # NULL once redacted under a GDPR erasure request.
     text: Mapped[str | None] = mapped_column(Text)
 

@@ -25,6 +25,13 @@ from app.services.audit_export import export_audit
 from app.services.pipeline import answer_query
 from tests.test_pipeline import ScriptedExtractor
 
+# This module's own clinic. The suite is additive and shares one database, so two
+# modules sharing a clinic would share a chain -- and a chain test passing because
+# of another module's rows proves nothing.
+CLINIC = "clinic-cited-chunk-protection"
+
+
+
 # Carvedilol, not bisoprolol. test_pipeline and test_audit_export both seed bisoprolol
 # passages, and the suite is additive — this module's chunks stopped reaching the top of
 # retrieval once they had company, so `ask()` cited someone else's document and the
@@ -103,6 +110,7 @@ async def ask(session, embedder, *, actor: str):
         session,
         question="carvedilol dose?",
         actor_id=actor,
+        clinic_id=CLINIC,
         embedder=embedder,
         extractor=ScriptedExtractor([DOSE]),
     )
@@ -228,7 +236,7 @@ async def test_a_takedown_clears_the_text_and_the_export_says_so(session, embedd
     )
     await session.commit()
 
-    export = await export_audit(session, actor_id=actor)
+    export = await export_audit(session, clinic_id=CLINIC, actor_id=actor)
 
     [entry] = export.entries
     assert entry.sources_complete, "the row survived, so the trail still resolves"
@@ -249,7 +257,7 @@ async def test_the_chain_verifies_either_way(session, embedder, corpus):
     actor = f"dr-{uuid.uuid4().hex[:6]}"
     answered = await ask(session, embedder, actor=actor)
 
-    assert await verify_chain(session) > 0
+    assert await verify_chain(session, clinic_id=CLINIC) > 0
 
     with pytest.raises(DBAPIError):
         await session.execute(
@@ -257,4 +265,4 @@ async def test_the_chain_verifies_either_way(session, embedder, corpus):
         )
     await session.rollback()
 
-    assert await verify_chain(session) > 0
+    assert await verify_chain(session, clinic_id=CLINIC) > 0

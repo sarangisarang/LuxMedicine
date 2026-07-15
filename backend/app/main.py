@@ -3,6 +3,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import documents, erasure, queries
+from app.core.auth import Clinician, current_clinician
 from app.core.config import get_settings
 from app.db.session import get_session
 from app.services.chain_monitor import verify_and_checkpoint
@@ -34,9 +35,17 @@ async def health(session: AsyncSession = Depends(get_session)) -> dict:
     responses={500: {"description": "The chain is broken — the body says where and since when"}},
 )
 async def audit_verify(
-    response: Response, session: AsyncSession = Depends(get_session)
+    response: Response,
+    clinician: Clinician = Depends(current_clinician),
+    session: AsyncSession = Depends(get_session),
 ) -> dict:
-    """Walk the audit chain end to end, and checkpoint it if intact.
+    """Walk the caller's own chain end to end, and checkpoint it if intact.
+
+    **The caller's clinic, from the token — there is no "verify everything" here.** Chains
+    are per clinic (0011), so this is the endpoint a tenant uses to check their own trail,
+    which is the only chain they can see and the only one they need. Verifying every
+    clinic is an operator's job and lives in `cli/verify_chain.py`, where it belongs: it
+    reads across tenants.
 
     **A break returns 500, not 200.** It used to return 200 with `{"intact": false}` in
     the body, which is the sort of thing that reads fine and fails in production: every
@@ -48,7 +57,9 @@ async def audit_verify(
     500 rather than a 4xx because a broken chain is not the caller's fault, and rather
     than 503 because retrying will not help.
     """
-    result = await verify_and_checkpoint(session, verified_by="http")
+    result = await verify_and_checkpoint(
+        session, clinic_id=clinician.clinic_id, verified_by="http"
+    )
 
     if not result.intact:
         response.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR

@@ -21,6 +21,12 @@ from app.services.audit_export import export_audit
 from app.services.pipeline import answer_query
 from tests.test_pipeline import DOSE, MONITORING, ScriptedExtractor, SimpleEmbedder
 
+# This module's own clinic. The suite is additive and shares one database, so two
+# modules sharing a clinic would share a chain -- and a chain test passing because
+# of another module's rows proves nothing.
+CLINIC = "clinic-audit-export"
+
+
 DIM = get_settings().embedding_dim
 
 
@@ -97,6 +103,7 @@ async def ask(session, embedder, *, actor: str, question: str = "bisoprolol dose
         session,
         question=question,
         actor_id=actor,
+        clinic_id=CLINIC,
         embedder=embedder,
         extractor=ScriptedExtractor([DOSE]),
     )
@@ -105,12 +112,14 @@ async def ask(session, embedder, *, actor: str, question: str = "bisoprolol dose
 # --- reconstruction ----------------------------------------------------------------
 
 
-async def test_an_entry_reconstructs_who_asked_what_when_and_against_what(session, embedder, corpus):
+async def test_an_entry_reconstructs_who_asked_what_when_and_against_what(
+    session, embedder, corpus
+):
     """The question a dispute asks, answered from one object."""
     actor = f"dr-{uuid.uuid4().hex[:6]}"
     answered = await ask(session, embedder, actor=actor, question="bisoprolol dose?")
 
-    export = await export_audit(session, actor_id=actor)
+    export = await export_audit(session, clinic_id=CLINIC, actor_id=actor)
 
     [entry] = export.entries
     assert entry.actor_id == actor
@@ -129,7 +138,7 @@ async def test_the_export_shows_everything_read_not_only_what_was_quoted(session
     actor = f"dr-{uuid.uuid4().hex[:6]}"
     answered = await ask(session, embedder, actor=actor)
 
-    export = await export_audit(session, actor_id=actor)
+    export = await export_audit(session, clinic_id=CLINIC, actor_id=actor)
 
     [entry] = export.entries
     assert len(entry.sources) == len(answered.hits)
@@ -143,10 +152,12 @@ async def test_filters_narrow_to_one_actor_and_window(session, embedder, corpus)
     await ask(session, embedder, actor=mine)
     await ask(session, embedder, actor=theirs)
 
-    export = await export_audit(session, actor_id=mine)
+    export = await export_audit(session, clinic_id=CLINIC, actor_id=mine)
     assert {e.actor_id for e in export.entries} == {mine}
 
-    future = await export_audit(session, actor_id=mine, since=datetime.now(UTC) + timedelta(days=1))
+    future = await export_audit(
+        session, clinic_id=CLINIC, actor_id=mine, since=datetime.now(UTC) + timedelta(days=1)
+    )
     assert future.entries == []
 
 
@@ -175,7 +186,7 @@ async def test_an_erased_question_is_gone_and_the_export_says_so(session, embedd
     )
     await session.commit()
 
-    export = await export_audit(session, actor_id=actor)
+    export = await export_audit(session, clinic_id=CLINIC, actor_id=actor)
 
     [entry] = export.entries
     assert entry.question is None
@@ -205,11 +216,9 @@ async def test_before_erasure_the_hash_is_verifiable_by_someone_holding_the_ques
     question = "45yo male, reduced EF — target bisoprolol dose?"
     answered = await ask(session, embedder, actor=actor, question=question)
 
-    query = (
-        await session.execute(select(Query).where(Query.id == answered.query_id))
-    ).scalar_one()
+    query = (await session.execute(select(Query).where(Query.id == answered.query_id))).scalar_one()
 
-    export = await export_audit(session, actor_id=actor)
+    export = await export_audit(session, clinic_id=CLINIC, actor_id=actor)
     [entry] = export.entries
 
     assert entry.question_hash_is_verifiable
@@ -232,7 +241,7 @@ async def test_editing_a_guideline_is_detected_even_though_the_chain_stays_intac
     actor = f"dr-{uuid.uuid4().hex[:6]}"
     await ask(session, embedder, actor=actor)
 
-    clean = await export_audit(session, actor_id=actor)
+    clean = await export_audit(session, clinic_id=CLINIC, actor_id=actor)
     assert clean.is_evidential
     assert all(c.still_matches for e in clean.entries for c in e.quote_integrity)
 
@@ -243,7 +252,7 @@ async def test_editing_a_guideline_is_detected_even_though_the_chain_stays_intac
     )
     await session.commit()
 
-    tampered = await export_audit(session, actor_id=actor)
+    tampered = await export_audit(session, clinic_id=CLINIC, actor_id=actor)
 
     assert tampered.chain_intact, "the chain is untouched — that is exactly the problem"
     assert not tampered.is_evidential
@@ -271,7 +280,7 @@ async def test_a_deleted_source_is_reported_not_omitted(session, embedder, corpu
     doomed = next(h.chunk_id for h in answered.hits if DOSE not in h.content)
     await delete_chunk_bypassing_the_guard(session, doomed)
 
-    export = await export_audit(session, actor_id=actor)
+    export = await export_audit(session, clinic_id=CLINIC, actor_id=actor)
 
     [entry] = export.entries
     assert doomed in entry.unresolvable_chunk_ids
@@ -291,7 +300,7 @@ async def test_deleting_a_quoted_passage_fails_both_checks(session, embedder, co
     quoted = next(h.chunk_id for h in answered.hits if DOSE in h.content)
     await delete_chunk_bypassing_the_guard(session, quoted)
 
-    export = await export_audit(session, actor_id=actor)
+    export = await export_audit(session, clinic_id=CLINIC, actor_id=actor)
 
     [entry] = export.entries
     assert not entry.sources_complete
@@ -310,7 +319,7 @@ async def test_the_export_carries_the_chain_result_with_the_entries(session, emb
     actor = f"dr-{uuid.uuid4().hex[:6]}"
     await ask(session, embedder, actor=actor)
 
-    export = await export_audit(session, actor_id=actor)
+    export = await export_audit(session, clinic_id=CLINIC, actor_id=actor)
 
     assert export.chain_intact
     assert export.chain_break is None
@@ -326,11 +335,12 @@ async def test_a_failed_query_appears_with_its_error(session, embedder, corpus):
         session,
         question="bisoprolol dose?",
         actor_id=actor,
+        clinic_id=CLINIC,
         embedder=embedder,
         extractor=ScriptedExtractor(raises=RuntimeError("the model API fell over")),
     )
 
-    export = await export_audit(session, actor_id=actor)
+    export = await export_audit(session, clinic_id=CLINIC, actor_id=actor)
 
     [entry] = export.entries
     assert entry.error is not None and "fell over" in entry.error
@@ -340,7 +350,7 @@ async def test_a_failed_query_appears_with_its_error(session, embedder, corpus):
 async def test_an_actor_with_no_history_exports_nothing_and_says_the_chain_is_fine(
     session, embedder, corpus
 ):
-    export = await export_audit(session, actor_id="dr-who-never-asked")
+    export = await export_audit(session, clinic_id=CLINIC, actor_id="dr-who-never-asked")
 
     assert export.entries == []
     assert export.chain_intact
@@ -357,7 +367,7 @@ async def test_entries_are_ordered_by_the_chain_not_by_clock(session, embedder, 
     for i in range(3):
         await ask(session, embedder, actor=actor, question=f"bisoprolol dose, question {i}?")
 
-    export = await export_audit(session, actor_id=actor)
+    export = await export_audit(session, clinic_id=CLINIC, actor_id=actor)
 
     seqs = [e.seq for e in export.entries]
     assert seqs == sorted(seqs)
@@ -370,10 +380,12 @@ async def test_the_stored_response_is_returned_verbatim(session, embedder, corpu
     actor = f"dr-{uuid.uuid4().hex[:6]}"
     answered = await ask(session, embedder, actor=actor)
 
-    export = await export_audit(session, actor_id=actor)
+    export = await export_audit(session, clinic_id=CLINIC, actor_id=actor)
     [entry] = export.entries
 
     from app.models.audit import AuditLog
 
-    row = (await session.execute(select(AuditLog).where(AuditLog.seq == answered.audit_seq))).scalar_one()
+    row = (
+        await session.execute(select(AuditLog).where(AuditLog.seq == answered.audit_seq))
+    ).scalar_one()
     assert entry.response == row.response

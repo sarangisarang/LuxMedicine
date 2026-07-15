@@ -32,6 +32,9 @@ class AuditLog(Base):
             "retrieved_chunk_ids",
             postgresql_using="gin",
         ),
+        # The chain walk: one clinic, seq order. Composite so the walk is an index scan
+        # rather than a filter plus a sort.
+        Index("ix_audit_log_clinic_seq", "clinic_id", "seq"),
     )
 
     # BIGSERIAL, not UUID: the chain is an ordered structure and needs a total order
@@ -42,6 +45,14 @@ class AuditLog(Base):
     row_hash: Mapped[str] = mapped_column(String(64), unique=True)
 
     actor_id: Mapped[str] = mapped_column(String(128), index=True)
+
+    # Which clinic's chain this row belongs to. In `_row_payload` and therefore hashed:
+    # as a bare column, anyone able to write to the table could move a row to another
+    # clinic and the chain would still verify clean.
+    #
+    # Indexed as (clinic_id, seq) in __table_args__, not here: the chain is always walked
+    # for one clinic in seq order, and a bare clinic_id index would leave the sort.
+    clinic_id: Mapped[str] = mapped_column(String(128))
 
     # No ON DELETE clause by design: queries are redacted, never deleted, so this
     # reference is stable for the life of the row.

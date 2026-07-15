@@ -1,7 +1,7 @@
 import uuid  # noqa: F401  — kept for symmetry with the other model modules
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, String
+from sqlalchemy import Index, BigInteger, DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -21,6 +21,9 @@ class ChainCheckpoint(Base):
     """
 
     __tablename__ = "chain_checkpoints"
+    __table_args__ = (
+        Index("ix_chain_checkpoints_clinic", "clinic_id", "verified_at"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
 
@@ -32,3 +35,7 @@ class ChainCheckpoint(Base):
 
     verified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     verified_by: Mapped[str] = mapped_column(String(128))
+
+    # Checkpoints are per clinic because chains are (0011). One checkpoint over "the
+    # chain" would be a claim about a chain that no longer exists.
+    clinic_id: Mapped[str] = mapped_column(String(128))

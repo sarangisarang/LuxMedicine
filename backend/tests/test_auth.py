@@ -24,6 +24,13 @@ from app.core import auth as auth_module
 from app.core.auth import Clinician, current_clinician, verify_token
 from app.core.config import Settings
 
+# This module's own clinic. The suite is additive and shares one database, so two
+# modules sharing a clinic would share a chain -- and a chain test passing because
+# of another module's rows proves nothing.
+CLINIC = "clinic-auth"
+
+
+
 ISSUER = "https://idp.example.invalid/realms/luxmedicine"
 AUDIENCE = "luxmedicine-api"
 
@@ -72,6 +79,7 @@ def idp(monkeypatch):
         def mint(self, *, kid: str = "key-1", key=None, **overrides) -> str:
             claims = {
                 "sub": "dr-ada-smith",
+                "clinic_id": CLINIC,
                 "iss": ISSUER,
                 "aud": AUDIENCE,
                 "exp": int(time.time()) + 300,
@@ -373,7 +381,7 @@ async def test_current_clinician_is_the_only_supplier_of_actor_id(idp, settings,
 
 
 def test_clinician_cannot_be_mutated_after_verification():
-    clinician = Clinician(actor_id="dr-ada-smith")
+    clinician = Clinician(actor_id="dr-ada-smith", clinic_id=CLINIC)
     with pytest.raises(Exception):
         clinician.actor_id = "dr-someone-else"  # type: ignore[misc]
 

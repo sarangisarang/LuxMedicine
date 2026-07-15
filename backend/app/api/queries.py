@@ -88,6 +88,9 @@ async def post_query(
         question=request.question,
         # The token's `sub`, and nothing else in this process can produce this argument.
         actor_id=clinician.actor_id,
+        # Likewise from the token. This is the value row-level security filters on, so
+        # the request body must not be able to reach it (#31).
+        clinic_id=clinician.clinic_id,
         embedder=embedder,
         extractor=extractor,
         limit=request.limit,
