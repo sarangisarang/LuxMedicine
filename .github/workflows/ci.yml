@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Weekly, so rot surfaces on a quiet Monday rather than mid-feature. The audit
+  # tests depend on Postgres trigger and locking behaviour, which a base-image
+  # upgrade can change without anything in this repo moving.
+  schedule:
+    - cron: "0 6 * * 1"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Lint, migrate, test
+    runs-on: ubuntu-latest
+
+    # The real pgvector image, not a plain postgres. The append-only triggers and the
+    # advisory lock exist only in the database, so a run without one would prove
+    # nothing that matters here.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: luxmed
+          POSTGRES_PASSWORD: luxmed
+          POSTGRES_DB: luxmedicine
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://luxmed:luxmed@localhost:5433/luxmedicine
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Apply migrations
+        run: alembic upgrade head
+
+      - name: Check for model/migration drift
+        # Fails if the models have moved but no migration was written. This caught a
+        # real one on the day it was added: the HNSW index existed in migration 0001
+        # via raw SQL but was never declared on the model.
+        run: alembic check
+
+      - name: Test
+        # Builds its own throwaway database from the migration — including the
+        # triggers, which Base.metadata.create_all() would silently omit.
+        run: pytest -q
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # scan history, not just the tip
+
+      # GitHub's native secret scanning is not available on private repos without
+      # Advanced Security, and this repo has already had one live token reach a
+      # tracked file. gitleaks fills that gap. --redact keeps any finding out of the
+      # logs, which are themselves a place secrets leak from.
+      - name: gitleaks
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/repo" \
+            zricethezav/gitleaks:latest detect --source=/repo --redact --verbose
