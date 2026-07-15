@@ -22,6 +22,13 @@ jobs:
     # The real pgvector image, not a plain postgres. The append-only triggers and the
     # advisory lock exist only in the database, so a run without one would prove
     # nothing that matters here.
+    #
+    # POSTGRES_USER is the container superuser, and a superuser skips every row-level
+    # security policy — FORCE ROW LEVEL SECURITY binds the table owner and does nothing
+    # to them. So tests/test_rls.py does not use this connection for the thing it tests:
+    # it creates a real NOSUPERUSER NOBYPASSRLS role and connects as that, and its first
+    # test asserts the role is not privileged. Running the isolation tests as the user
+    # below would pass every assertion while proving RLS was switched off.
     services:
       postgres:
         image: pgvector/pgvector:pg17

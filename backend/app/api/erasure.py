@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import NoResultFound
 
 from app.core.auth import Clinician, current_clinician
-from app.db.session import get_session
+from app.db.session import get_tenant_session
 from app.models.erasure import LegalBasis
 from app.services.audit import redact_query
 
@@ -54,7 +54,7 @@ async def erase_query(
     query_id: uuid.UUID,
     request: ErasureRequest,
     clinician: Clinician = Depends(current_clinician),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_tenant_session),
 ) -> ErasureResponse:
     """Erase one question. Idempotent.
 

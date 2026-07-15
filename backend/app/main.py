@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api import documents, erasure, queries
 from app.core.auth import Clinician, current_clinician
 from app.core.config import get_settings
-from app.db.session import get_session
+from app.db.session import get_session, get_tenant_session
 from app.services.chain_monitor import verify_and_checkpoint
 
 settings = get_settings()
@@ -37,7 +37,7 @@ async def health(session: AsyncSession = Depends(get_session)) -> dict:
 async def audit_verify(
     response: Response,
     clinician: Clinician = Depends(current_clinician),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_tenant_session),
 ) -> dict:
     """Walk the caller's own chain end to end, and checkpoint it if intact.
 

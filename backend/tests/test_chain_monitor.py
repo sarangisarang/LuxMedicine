@@ -17,7 +17,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.auth import Clinician, current_clinician
-from app.db.session import get_session
+from app.db.session import get_tenant_session
 from app.main import app
 from app.models.checkpoint import ChainCheckpoint
 from app.schemas.answer import AnswerPayload, NoAnswerReason
@@ -108,7 +108,10 @@ async def client(engine):
     # (0011) and there is no global chain left to walk. The identity is faked here rather
     # than the token minted: tests/test_auth.py is where verification itself is tested,
     # and doing it again through every endpoint tests pyjwt twice and this endpoint once.
-    app.dependency_overrides[get_session] = override
+    # get_tenant_session, not get_session: /audit/verify reads a clinic's rows, so it
+    # takes the tenant-scoped session now (#31). Overriding the wrong one leaves the real
+    # dependency in place and the test hits a live database with no token.
+    app.dependency_overrides[get_tenant_session] = override
     app.dependency_overrides[current_clinician] = lambda: Clinician(
         actor_id="dr-001", clinic_id=CLINIC
     )

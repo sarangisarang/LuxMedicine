@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import Clinician, current_clinician
-from app.db.session import get_session
+from app.db.session import get_tenant_session
 from app.schemas.answer import AnswerPayload
 from app.services.answering import Extractor
 from app.services.embedding import Embedder
@@ -73,7 +73,7 @@ def get_extractor() -> Extractor:  # pragma: no cover - overridden in tests and 
 async def post_query(
     request: QueryRequest,
     clinician: Clinician = Depends(current_clinician),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_tenant_session),
     embedder: Embedder = Depends(get_embedder),
     extractor: Extractor = Depends(get_extractor),
 ) -> QueryResponse:
