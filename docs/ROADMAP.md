@@ -24,6 +24,20 @@ resolves to an exact edition and page years later.
 - [x] `AnswerPayload` — the extractive answer contract
 - [x] 13 DB-free chain tests
 
+## CI ✅ done
+
+`.github/workflows/ci.yml` — ruff, `alembic upgrade head`, `alembic check`, pytest
+against a real pgvector service container, and gitleaks over full history.
+
+Postgres is not mocked and the schema is not built with `create_all()`: the append-only
+triggers and the advisory lock exist only in the database, so a run without them would
+be green while proving nothing.
+
+**No CD, deliberately.** There is no ingestion, no retrieval, and no environment to
+deploy to. A pipeline now would be infrastructure for an application that does not
+exist. Revisit when Phase 4 makes something worth running for someone else — at which
+point data residency (#6) constrains where it may run.
+
 ## Phase 1 — Prove the substrate on a real database
 
 The chain is currently verified by tests that never touch Postgres. The guarantees
