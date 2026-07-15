@@ -128,13 +128,34 @@ conflict detection depends on it entirely.
 - **#18** Strict extraction prompt returning `AnswerPayload` as structured output
 - **#19** **Verbatim citation validation** — reject any `quote` not found character-for-character in its cited chunk
 - **#20** `no_answer_reason` path when the corpus cannot answer
-- **#21** Per-statement guarantee: no citations ⇒ the statement never ships
+- **#21** ~~Per-statement guarantee: no citations ⇒ the statement never ships~~ — dissolved by #19
 
 > #19 is the strongest anti-hallucination mechanism available here, and it is a cheap
 > substring check rather than a model call. Because the schema is extractive, a
 > fabricated quote is *mechanically detectable*: it will not appear in the source text.
 > Free-form generation forfeits this — which is one more reason the MDR positioning
 > pays for itself technically, not just legally.
+>
+> Building it exposed a hole in the schema it was meant to protect. #19 validates
+> `quote`. It never validated `ExtractedStatement.text` — a model-written claim with the
+> citation attached as evidence beneath it. So this passed every check:
+>
+> ```
+> text  = "Enalapril is contraindicated in renal impairment"    <- invented
+> quote = "The target dose of enalapril is 20 mg twice daily"    <- real, verbatim
+> ```
+>
+> Fabricated advice wearing a genuine citation, which is worse than a bare hallucination
+> because the citation is what lends it credibility — and the claim is the headline a
+> clinician reads, with the quote as small print. Statements are gone: a source group
+> carries citations, a citation carries a quote, and there is no field left to write a
+> claim into.
+>
+> That also settles **#21** structurally. "A statement with no citation" is now
+> unrepresentable rather than forbidden, so there is no rule left to enforce.
+>
+> `ConflictFinding.description` is the same category of prose and survives for now —
+> settle it at #24, before a prompt is written that fills it.
 
 ## Phase 5 — Conflict detection
 

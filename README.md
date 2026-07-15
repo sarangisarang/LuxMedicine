@@ -21,6 +21,12 @@ has no field for a recommendation, an assessment, or a suggested action. The onl
 clinical text that can leave the system is a verbatim `quote` carried by a `Citation`.
 Conflicts are shown, never resolved — picking a winner would be the advice we avoid.
 
+That sentence was false until #19 was built. The schema also carried a model-written
+`statement.text`, with citations attached beneath it as evidence — so a fabricated claim
+could ship wearing a genuine quote, which is worse than a bare hallucination because the
+citation is what makes it credible. Statements are gone; a test now fails if any field
+holding free clinical text reappears.
+
 This turns out to pay for itself technically. Because answers are extractive, a
 fabricated quote is *mechanically detectable*: it will not appear in the source text.
 A substring check catches it, with no model call and no judgement involved. Free-form
