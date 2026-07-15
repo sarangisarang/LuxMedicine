@@ -50,7 +50,6 @@ class RegistrationRequest:
     version_label: str
     file_hash: str
     storage_uri: str
-    region: str | None = None
     guideline_type: str | None = None
     published_at: date | None = None
 
@@ -75,7 +74,11 @@ async def _get_or_create_document(session: AsyncSession, req: RegistrationReques
             id=uuid.uuid4(),
             title=req.title,
             issuing_org=str(req.issuing_org),
-            region=req.region if req.region is not None else req.issuing_org.region,
+            # Derived, never supplied. Region describes the issuing body's
+            # jurisdiction, not the individual document, so accepting it from the
+            # caller only re-opens the inconsistency the IssuingOrg enum closes:
+            # "EU" and "Europe" and "europe" for the same organisation.
+            region=req.issuing_org.region,
             guideline_type=req.guideline_type,
         )
         .on_conflict_do_nothing(constraint="uq_document_org_title")
