@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.chunk import TEXT_SEARCH_CONFIG, Chunk
 from app.models.document import Document, DocumentVersion, VersionStatus
 from app.services.embedding import Embedder
+from app.services.staleness import latest_labels
 from app.services.synonyms import expand_query, load_aliases
 
 
@@ -41,9 +42,14 @@ class SearchHit:
     # nobody can audit later.
     distance: float
 
-    # Set when the version has a successor. #17 turns this into "a newer edition exists";
-    # it is surfaced here so retrieval never hands back stale guidance silently.
+    # Set when the version has a successor.
     is_superseded: bool
+
+    # The label of the edition at the end of this version's supersession chain — what
+    # the clinician should actually be reading. Not the immediate successor: given
+    # 2021 -> 2022 -> 2023, naming 2022 sends them to read another outdated document.
+    # None when nothing supersedes this version.
+    superseding_version_label: str | None = None
 
     # Which half of the hybrid found it. Not decoration: a hit only the lexical side
     # found is usually an exact drug name or dose the embedding ranked flat, and that is
@@ -114,6 +120,8 @@ async def search(
     # than pre-solved; the shortfall test below is what will notice.
     rows = (await session.execute(_base_query(embedding, include_archived=include_archived).limit(limit))).all()
 
+    labels = await latest_labels(session, [row.document_version_id for row in rows])
+
     return [
         SearchHit(
             chunk_id=row.id,
@@ -128,6 +136,9 @@ async def search(
             content=row.content,
             distance=float(row.distance),
             is_superseded=bool(row.is_superseded),
+            superseding_version_label=(
+                labels.get(row.document_version_id) if row.is_superseded else None
+            ),
         )
         for row in rows
     ]
@@ -251,6 +262,8 @@ async def hybrid_search(
         )
     ).all()
 
+    labels = await latest_labels(session, [row.document_version_id for row in detail])
+
     hits = [
         SearchHit(
             chunk_id=row.id,
@@ -265,6 +278,9 @@ async def hybrid_search(
             content=row.content,
             distance=float(row.distance),
             is_superseded=bool(row.is_superseded),
+            superseding_version_label=(
+                labels.get(row.document_version_id) if row.is_superseded else None
+            ),
             found_by_vector=bool(ranking[row.id].found_by_vector),
             found_by_lexical=bool(ranking[row.id].found_by_lexical),
             rrf_score=float(ranking[row.id].rrf_score),
