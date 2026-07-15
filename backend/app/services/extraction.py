@@ -43,6 +43,8 @@ from pathlib import Path
 
 import pdfplumber
 
+from app.services.columns import find_gutter
+
 # Pages are joined by a blank line. It belongs to no page: a chunk boundary landing in
 # the gap resolves to the page before it, which is where its text actually came from.
 PAGE_SEPARATOR = "\n\n"
@@ -175,6 +177,42 @@ def _normalise(raw: str) -> str:
     return unicodedata.normalize("NFC", raw).replace("\r\n", "\n").replace("\r", "\n")
 
 
+def _lines_in_reading_order(page) -> list[dict]:
+    """Lines the way a person reads them, not the way they sit on the y axis (#42).
+
+    `extract_text_lines()` groups characters by vertical position. On a two-column page
+    that welds the two columns: a line at y=400 in the left column and a different line at
+    y=400 in the right column come back as one, and the result is fluent prose nobody
+    wrote —
+
+        "decreased GFR, possibly because BMI in isolation is a 'best practice' suggestion."
+
+    — which #19 blesses, because the quote really is in the chunk. Measured on KDIGO 2012
+    CKD: 117 of 163 pages two-column, 205 lines welding a hyphen-broken word to unrelated
+    text. Cropping to each column first takes that to 53, a 74% reduction; the remainder
+    are on pages find_gutter declines, where reading across is what happens today anyway.
+
+    When there is no gutter this is exactly the old behaviour. That is the point: the
+    decision to crop is per page, and refusing is the safe answer — bisecting a
+    single-column page destroys every line on it, while missing a gutter leaves the page
+    no worse than it is now.
+    """
+    tables = [table.bbox for table in page.find_tables()]
+    gutter = find_gutter(page.chars, page_width=page.width, table_bboxes=tables)
+
+    if gutter is None:
+        return page.extract_text_lines(return_chars=True)
+
+    # Left column top to bottom, then right. The offsets recorded by the caller follow
+    # this order, so a citation's span resolves to the page it was read from — the ledger
+    # describes the text as assembled, which is the only text anything ever sees.
+    left = page.crop((0, 0, gutter.x, page.height))
+    right = page.crop((gutter.x, 0, page.width, page.height))
+    return left.extract_text_lines(return_chars=True) + right.extract_text_lines(
+        return_chars=True
+    )
+
+
 def _modal_size(sizes: list[float]) -> float:
     return Counter(sizes).most_common(1)[0][0]
 
@@ -196,7 +234,7 @@ def extract_pdf(path: Path) -> ExtractedDocument:
         page_count = len(pdf.pages)
 
         for index, page in enumerate(pdf.pages, start=1):
-            raw_lines = page.extract_text_lines(return_chars=True)
+            raw_lines = _lines_in_reading_order(page)
             page_line_texts = [_normalise(line["text"]) for line in raw_lines]
 
             if not any(text.strip() for text in page_line_texts):
