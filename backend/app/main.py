@@ -2,7 +2,7 @@ from fastapi import Depends, FastAPI, Response, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api import documents
+from app.api import documents, queries
 from app.core.config import get_settings
 from app.db.session import get_session
 from app.services.chain_monitor import verify_and_checkpoint
@@ -19,6 +19,7 @@ app = FastAPI(
 )
 
 app.include_router(documents.router)
+app.include_router(queries.router)
 
 
 @app.get("/health")

@@ -21,6 +21,11 @@ dependencies = [
     # MIT, as is its pdfminer.six engine. Chosen over PyMuPDF, which is AGPL-3.0 and
     # would put a copyleft obligation on a hosted clinical service.
     "pdfplumber>=0.11.4",
+    # Identity (#30). `[crypto]` pulls in `cryptography` for RS256 — without the
+    # extra, pyjwt silently supports only HMAC and every RS256 token fails.
+    "pyjwt[crypto]>=2.10",
+    # Runtime, not just tests: JWKS and OIDC discovery are outbound HTTP.
+    "httpx>=0.28",
 ]
 
 [project.optional-dependencies]
@@ -39,7 +44,6 @@ llm = ["anthropic>=0.116"]
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
-    "httpx>=0.28",
     # Test-only: builds real multi-page PDFs with known text, so extraction is tested
     # against a genuine PDF rather than against a fixture that flatters the parser.
     "reportlab>=4.2",

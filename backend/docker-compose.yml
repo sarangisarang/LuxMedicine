@@ -16,5 +16,28 @@ services:
       timeout: 5s
       retries: 10
 
+  # Identity (#30). Self-hosted for the same reason the embedding model is: clinician
+  # identity is personal data, and this project keeps clinical data inside the EU rather
+  # than posting it to a third-party API. Auth0/Okta is a US processor; sending the
+  # identity there while keeping the question here would be a contradiction.
+  #
+  # Nothing in app/core/auth.py knows this is Keycloak — it speaks OIDC discovery, JWKS
+  # and RS256. Swapping in an EU-hosted managed provider is OIDC_ISSUER, not a rewrite.
+  #
+  # `start-dev` is development-only: it serves HTTP and uses an in-memory database, so
+  # every realm and user is gone on restart. A real deployment needs `start`, TLS, and a
+  # persistent DB.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: luxmedicine-keycloak
+    command: ["start-dev", "--import-realm", "--http-port=8081"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./keycloak/realm-luxmedicine.json:/opt/keycloak/data/import/realm-luxmedicine.json:ro
+
 volumes:
   luxmedicine-pgdata:
