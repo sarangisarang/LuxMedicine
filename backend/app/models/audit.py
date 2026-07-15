@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, String, Text
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -24,6 +24,15 @@ class AuditLog(Base):
     """
 
     __tablename__ = "audit_log"
+    __table_args__ = (
+        # Answers the containment check in migration 0008's delete trigger. Without it
+        # that check is a sequential scan of this table on every chunk delete.
+        Index(
+            "ix_audit_log_retrieved_chunk_ids",
+            "retrieved_chunk_ids",
+            postgresql_using="gin",
+        ),
+    )
 
     # BIGSERIAL, not UUID: the chain is an ordered structure and needs a total order
     # that does not depend on clock skew.
@@ -41,6 +50,12 @@ class AuditLog(Base):
 
     # The exact passages the answer was built from. With chunks bound to a
     # document_version, this resolves to "which edition, which page" years later.
+    #
+    # No foreign key — Postgres cannot reference an element of an array. A trigger on
+    # `chunks` enforces the same thing instead (migration 0008): a cited passage cannot
+    # be deleted, so this list always resolves. Deleting one never broke the hash chain,
+    # which is precisely why it needed its own guard: the chain would have kept verifying
+    # over a trail that could no longer show what it relied on.
     retrieved_chunk_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(UUID(as_uuid=True)))
 
     # Hash of the rendered prompt and the model identifier: reproducibility evidence

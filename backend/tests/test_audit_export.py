@@ -68,6 +68,28 @@ async def corpus(session, embedder):
     return version
 
 
+async def delete_chunk_bypassing_the_guard(session, chunk_id: uuid.UUID) -> None:
+    """Delete a cited chunk the only way it can now happen: by dropping #40's trigger.
+
+    That is not a test convenience — it is the scenario the export's reporting exists
+    for. #40 makes deletion unreachable for anything short of a privilege that can drop
+    the trigger, exactly as 0001's append-only triggers can be dropped by a superuser.
+    The hash chain sits above those for the same reason this reporting sits above #40:
+    a guard that can be removed needs something that notices afterwards.
+    """
+    await session.execute(text("DROP TRIGGER chunks_no_delete_when_cited ON chunks"))
+    try:
+        await session.execute(text("DELETE FROM chunks WHERE id = :id"), {"id": chunk_id})
+    finally:
+        await session.execute(
+            text(
+                "CREATE TRIGGER chunks_no_delete_when_cited BEFORE DELETE ON chunks "
+                "FOR EACH ROW EXECUTE FUNCTION chunk_is_cited_by_audit()"
+            )
+        )
+    await session.commit()
+
+
 async def ask(session, embedder, *, actor: str, question: str = "bisoprolol dose?"):
     return await answer_query(
         session,
@@ -189,9 +211,12 @@ async def test_editing_a_guideline_is_detected_even_though_the_chain_stays_intac
 
 
 async def test_a_deleted_source_is_reported_not_omitted(session, embedder, corpus):
-    """`retrieved_chunk_ids` has no foreign key and deleting a document cascades to its
-    chunks. Dropping the missing ones silently would make an incomplete export look
-    complete — in the one document whose whole purpose is completeness.
+    """Dropping a missing source silently would make an incomplete export look complete —
+    in the one document whose whole purpose is completeness.
+
+    Since #40 this needs the trigger bypassed to reach at all. It stays because a guard
+    that a superuser can drop needs something that notices afterwards — the same
+    relationship the hash chain has with 0001's triggers.
 
     Note which flag catches it. This deletes a passage the system *read but did not
     quote*, so every quote still matches and `corpus_matches_the_record` stays true — the
@@ -203,9 +228,7 @@ async def test_a_deleted_source_is_reported_not_omitted(session, embedder, corpu
     answered = await ask(session, embedder, actor=actor)
 
     doomed = next(h.chunk_id for h in answered.hits if DOSE not in h.content)
-
-    await session.execute(text("DELETE FROM chunks WHERE id = :id"), {"id": doomed})
-    await session.commit()
+    await delete_chunk_bypassing_the_guard(session, doomed)
 
     export = await export_audit(session, actor_id=actor)
 
@@ -225,8 +248,7 @@ async def test_deleting_a_quoted_passage_fails_both_checks(session, embedder, co
     answered = await ask(session, embedder, actor=actor)
 
     quoted = next(h.chunk_id for h in answered.hits if DOSE in h.content)
-    await session.execute(text("DELETE FROM chunks WHERE id = :id"), {"id": quoted})
-    await session.commit()
+    await delete_chunk_bypassing_the_guard(session, quoted)
 
     export = await export_audit(session, actor_id=actor)
 
