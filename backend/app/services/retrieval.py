@@ -68,6 +68,38 @@ class SearchHit:
     rrf_score: float | None = None
 
 
+def _search_hit(row, labels: dict, **extra) -> SearchHit:
+    """Build one SearchHit from a result row. The single place a row becomes a hit.
+
+    There used to be two of these — one in the vector-only path, one in the hybrid path —
+    identical but for three fields. Twice this session a field was added to one and the
+    other quietly kept the old shape (unreadable_pages, #41; issuing_org, #43's
+    multi-document test), and a test that only exercised one path could not see it. A
+    mutation that changed a single construction survived. One constructor removes the
+    class: `extra` carries the hybrid-only fields (found_by_*, rrf_score), and the
+    vector-only caller passes none.
+    """
+    return SearchHit(
+        chunk_id=row.id,
+        document_version_id=row.document_version_id,
+        document_id=row.document_id,
+        document_title=row.title,
+        issuing_org=row.issuing_org,
+        version_label=row.version_label,
+        section=row.section,
+        page_start=row.page_start,
+        page_end=row.page_end,
+        content=row.content,
+        distance=float(row.distance),
+        is_superseded=bool(row.is_superseded),
+        superseding_version_label=(
+            labels.get(row.document_version_id) if row.is_superseded else None
+        ),
+        unreadable_pages=row.unreadable_pages,
+        **extra,
+    )
+
+
 def _base_query(embedding: list[float], *, include_archived: bool) -> Select:
     statuses = (
         [VersionStatus.ACTIVE, VersionStatus.ARCHIVED] if include_archived else [VersionStatus.ACTIVE]
@@ -132,27 +164,7 @@ async def search(
 
     labels = await latest_labels(session, [row.document_version_id for row in rows])
 
-    return [
-        SearchHit(
-            chunk_id=row.id,
-            document_version_id=row.document_version_id,
-            document_id=row.document_id,
-            document_title=row.title,
-            issuing_org=row.issuing_org,
-            version_label=row.version_label,
-            section=row.section,
-            page_start=row.page_start,
-            page_end=row.page_end,
-            content=row.content,
-            distance=float(row.distance),
-            is_superseded=bool(row.is_superseded),
-            superseding_version_label=(
-                labels.get(row.document_version_id) if row.is_superseded else None
-            ),
-            unreadable_pages=row.unreadable_pages,
-        )
-        for row in rows
-    ]
+    return [_search_hit(row, labels) for row in rows]
 
 
 # Reciprocal Rank Fusion. 60 is the value from the original paper and the usual default;
@@ -277,23 +289,9 @@ async def hybrid_search(
     labels = await latest_labels(session, [row.document_version_id for row in detail])
 
     hits = [
-        SearchHit(
-            chunk_id=row.id,
-            document_version_id=row.document_version_id,
-            document_id=row.document_id,
-            document_title=row.title,
-            issuing_org=row.issuing_org,
-            version_label=row.version_label,
-            section=row.section,
-            page_start=row.page_start,
-            page_end=row.page_end,
-            content=row.content,
-            distance=float(row.distance),
-            is_superseded=bool(row.is_superseded),
-            superseding_version_label=(
-                labels.get(row.document_version_id) if row.is_superseded else None
-            ),
-            unreadable_pages=row.unreadable_pages,
+        _search_hit(
+            row,
+            labels,
             found_by_vector=bool(ranking[row.id].found_by_vector),
             found_by_lexical=bool(ranking[row.id].found_by_lexical),
             rrf_score=float(ranking[row.id].rrf_score),
