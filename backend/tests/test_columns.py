@@ -222,6 +222,25 @@ def two_column_table_chars(width: float = 600):
     return chars
 
 
+def two_column_ragged_prose_chars(width: float = 600):
+    """Two prose columns where about a third of lines end short, as real paragraphs do.
+
+    An idealized prose fixture fills every line to the margin (100%), and 100% is not below
+    a threshold of 1.0 — so it cannot catch TABLE_FILL_MAX set too high, which would veto
+    real prose and weld it. This fills ~67%, above the 30% table line but well below 100%,
+    and guards that upper bound: KDIGO's prose floors at 57%, and none of it may be vetoed.
+    """
+    chars = []
+    for row in range(9):
+        y = row * 12.0
+        short = row % 3 == 2  # every third line ends short, like a paragraph's last line
+        for start, margin in ((40, 288), (312, 560)):
+            end = start + 80 if short else margin
+            for x in range(start, end, 2):
+                chars.append(FakeChar(x, x + 1, y, y + 10))
+    return chars
+
+
 def test_a_borderless_table_is_not_split_and_prose_still_is():
     """Both directions in one assertion, for the same reason the inversion test is: a veto
     that fires on everything would stop the welds by refusing every crop, regressing #42 in
@@ -252,6 +271,17 @@ def test_the_table_signal_separates_cells_from_prose():
     assert _looks_like_borderless_table(two_column_chars(), 295, 310) is False
     # and end to end, the whole find_gutter refuses the table and keeps the prose.
     assert find_gutter(two_column_table_chars(), page_width=600, table_bboxes=[]) is None
+
+
+def test_ragged_prose_is_not_vetoed_by_a_too_high_threshold():
+    """The upper bound of TABLE_FILL_MAX. Prose whose lines end short a third of the time
+    (~67% full) is unmistakably prose, but an idealized 100%-full fixture cannot prove a
+    threshold set near 1.0 would spare it. This can: at 0.30 it stays two-column, and a
+    threshold high enough to catch it would be welding real prose (KDIGO floors at 57%)."""
+    from app.services.columns import _looks_like_borderless_table
+
+    assert _looks_like_borderless_table(two_column_ragged_prose_chars(), 295, 310) is False
+    assert find_gutter(two_column_ragged_prose_chars(), page_width=600, table_bboxes=[]) is not None
 
 
 def test_a_tall_two_column_block_is_never_called_a_table():
