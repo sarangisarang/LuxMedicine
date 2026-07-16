@@ -67,7 +67,13 @@ export function PdfViewer({
       );
       if (words.length === 0) return escaped;
       const overlap = words.filter((w) => quoteWords.has(w)).length / words.length;
-      return overlap >= 0.6 ? `<mark class="pdf-hl">${escaped}</mark>` : escaped;
+      // Inline style, not a CSS class: react-pdf sanitises the returned HTML but keeps the
+      // style attribute, and this avoids depending on a stylesheet selector matching the
+      // text layer's markup. color:transparent because the visible glyphs are the canvas
+      // underneath; the mark only contributes the highlight background.
+      return overlap >= 0.6
+        ? `<mark style="background-color:rgba(250,204,21,0.5);color:transparent;border-radius:2px">${escaped}</mark>`
+        : escaped;
     },
     [quoteWords],
   );
