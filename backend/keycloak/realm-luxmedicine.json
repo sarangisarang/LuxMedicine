@@ -30,6 +30,13 @@
         "the client, which is the flow OAuth 2.1 removed for that reason."
       ],
       "directAccessGrantsEnabled": true,
+      "_comment_clinic_id": [
+        "app/core/auth.py refuses any token with no clinic_id claim — it is the tenant",
+        "boundary row-level security filters on (#31), and there is no default clinic to",
+        "fall back to. So the token MUST carry it: this mapper copies the user's clinic_id",
+        "attribute (set on dr.smith below) into the access token as the `clinic_id` claim.",
+        "Without both the mapper and the attribute, every dev token is rejected 401."
+      ],
       "protocolMappers": [
         {
           "name": "luxmedicine-audience",
@@ -38,6 +45,18 @@
           "config": {
             "included.client.audience": "luxmedicine-api",
             "access.token.claim": "true"
+          }
+        },
+        {
+          "name": "luxmedicine-clinic-id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "clinic_id",
+            "claim.name": "clinic_id",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
           }
         }
       ]
@@ -51,6 +70,7 @@
       "email": "dr.smith@example.invalid",
       "firstName": "Ada",
       "lastName": "Smith",
+      "attributes": { "clinic_id": ["clinic-demo"] },
       "credentials": [{ "type": "password", "value": "dev-password", "temporary": false }]
     }
   ]
