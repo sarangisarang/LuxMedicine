@@ -52,6 +52,50 @@ MIN_CHARS = 120
 # real gutter between tight columns.
 BUCKET = 2.0
 
+# --- Borderless-table veto (#44) ---------------------------------------------------------
+#
+# find_gutter already refuses to split when a *detected* table spans the gutter (see the
+# `table_bboxes` loop below). But pdfplumber's find_tables is line-based and cannot see a
+# borderless table — one ruled by whitespace alone, like KDIGO's GFR-category classification
+# table. With no bbox to veto on, the gap between the table's own columns reads as a page
+# gutter, the page is cropped there, and every row is torn in half: "G1" lands in one chunk,
+# "Normal or high" in another. A correct model quote of the reassembled table then fails #19
+# and the clinician gets no answer. This is the regression #42 introduced.
+#
+# The discriminator is geometric, not line-based: in flowing prose almost every line runs to
+# the column margin (it wraps there), so the fraction of "full-width" lines is high; in a
+# table the cells are short labels and numbers, so that fraction is low. Measured on KDIGO's
+# two-column bands: the clearly-tabular ones cluster at or below 19% full-width lines (the
+# GFR table at 17%, a forest plot at 0%, a comparison table at 10%, study-data tables at
+# 14-19%), while flowing prose floors at 57% — and that floor is *indented* prose (numbered
+# recommendations with hanging indents, p117), which is the hardest prose case because its
+# short lines most resemble a table. TABLE_FILL_MAX sits at 0.30: above the tabular cluster
+# (19%) with margin, and 27 points below the prose floor (57%).
+#
+# Tables whose fill lands in the 30-57% overlap (KDIGO's abbreviation and albuminuria-
+# category tables, ~38-40%) are deliberately NOT caught. Catching them means a threshold
+# close enough to the prose floor to risk welding indented prose, and a false positive here
+# is a *safety* regression: welded prose passes #19 and reaches the clinician, whereas a
+# missed table stays in today's safe state (no answer). So this errs hard toward missing
+# tables. Recall is bought later, with a second two-column publisher to measure precision
+# against; this corpus has exactly one (ESC/GOLD/NICE are single-column), so the threshold
+# is validated on n=1 and kept conservative on purpose.
+TABLE_FILL_MAX = 0.30
+
+# A line "reaches the margin" if it spans at least this fraction of its column's width. 0.60
+# is loose enough that a paragraph's short last line still counts short lines against prose
+# only mildly, and tight enough that a table cell never reaches it.
+TABLE_FULL_LINE = 0.60
+
+# The veto only fires on *short* bands. The one demonstrated prose false-positive mode —
+# indented recommendation text — occurs on full-page bands (p117 is 660pt, 87 lines), so a
+# height cap excludes it by construction, a second guard behind the fill threshold. It also
+# means a whole-page call to find_gutter (band = the entire page) is never table-vetoed, so
+# single-column detection is unaffected. Set above every tabular band measured on KDIGO (the
+# tallest caught is a ~190pt study table) and well below a prose page. A genuinely tall
+# borderless table is left in the safe no-answer state rather than risk a tall-prose weld.
+MAX_TABLE_BAND_HEIGHT = 250.0
+
 
 @dataclass(frozen=True)
 class Gutter:
@@ -68,6 +112,66 @@ class Gutter:
     @property
     def width(self) -> float:
         return self.x1 - self.x0
+
+
+def _looks_like_borderless_table(chars: list[dict], x0: float, x1: float) -> bool:
+    """Whether the two columns either side of a candidate gutter are table cells, not prose.
+
+    Prose lines wrap to the column margin, so most are "full width"; table cells are short
+    labels and numbers, so few are. This measures, per side, the fraction of lines that
+    reach the margin, and calls it a table when the *lesser* side is mostly short lines and
+    the band is short enough that no full-page prose block qualifies. The lesser side, not
+    both: a real table can pair a wide description column with a narrow code column (KDIGO's
+    GFR table fills 100% on the left, 17% on the right), so requiring both to be short would
+    miss it — while measured prose keeps *both* sides above the threshold (its floor is 57%,
+    on indented recommendation text), so taking the minimum does not let prose through. See
+    TABLE_FILL_MAX.
+
+    A char's line is its row bucket (``top // ROW_HEIGHT``); a line's width is the extent of
+    its chars on that side. A side's column width is measured from PAGE geometry — the gutter
+    to the text block's edge — NOT from the side's own text extent. That distinction is the
+    whole measurement: using the text extent makes a line fill its own span by definition
+    (a cell is always 100% of the widest cell), which hides the very shortness that marks a
+    table. Measuring against the gutter-to-margin width counts a cell's surrounding blank as
+    the column, so short cells read short. This is a char-level stand-in for
+    extract_text_lines, which needs a page object find_gutter does not have — close enough
+    for a threshold with a 27-point margin.
+    """
+    if not chars:
+        return False
+    top = min(c["top"] for c in chars)
+    bottom = max(c["bottom"] for c in chars)
+    if bottom - top > MAX_TABLE_BAND_HEIGHT:
+        return False
+
+    gx = (x0 + x1) / 2
+    block_left = min(c["x0"] for c in chars)
+    block_right = max(c["x1"] for c in chars)
+
+    fractions: list[float] = []
+    for side_chars, col_lo, col_hi in (
+        ([c for c in chars if c["x1"] <= x0], block_left, gx),  # left column
+        ([c for c in chars if c["x0"] >= x1], gx, block_right),  # right column
+    ):
+        if not side_chars:
+            return False
+        span = col_hi - col_lo
+        if span < 1:
+            return False
+        lines: dict[int, tuple[float, float]] = {}
+        for c in side_chars:
+            row = int(c["top"] // ROW_HEIGHT)
+            if row in lines:
+                lo, hi = lines[row]
+                lines[row] = (min(lo, c["x0"]), max(hi, c["x1"]))
+            else:
+                lines[row] = (c["x0"], c["x1"])
+        full = sum(1 for lo, hi in lines.values() if (hi - lo) >= TABLE_FULL_LINE * span)
+        fractions.append(full / len(lines))
+
+    # The lesser side decides: a table needs only one clearly-short column, prose keeps both
+    # sides reaching the margin.
+    return min(fractions) < TABLE_FILL_MAX
 
 
 def find_gutter(
@@ -137,6 +241,13 @@ def find_gutter(
     right = sum(1 for c in chars if c["x0"] >= x1)
     total = len(chars)
     if left < total * MIN_SIDE_SHARE or right < total * MIN_SIDE_SHARE:
+        return None
+
+    # A borderless table's inter-column gap looks exactly like a page gutter (find_tables
+    # cannot see it to veto it), but cropping there tears every row in half. Same remedy as
+    # the detected-table veto above: refuse the gutter, read the band across — a table's
+    # flowed text is already row-wise, which is the shape it should have. (#44)
+    if _looks_like_borderless_table(chars, x0, x1):
         return None
 
     return Gutter(x0=x0, x1=x1)

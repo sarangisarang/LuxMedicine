@@ -198,6 +198,108 @@ def test_a_table_beside_the_gutter_does_not_block_it():
     assert gutter is not None
 
 
+# --- a borderless table's boundary is not a page gutter either (#44) ------------------
+
+
+def two_column_table_chars(width: float = 600):
+    """A borderless table, not prose — shaped like KDIGO's GFR-category table.
+
+    find_tables cannot see a table ruled by whitespace alone, so no bbox exists to veto its
+    inter-column gap — and that gap reads as a page gutter, cropping every row in half. The
+    GFR table pairs a *full-width* left column (category descriptions that reach the margin,
+    17% short — i.e. 100% full) with a *short* right column (stage codes and numbers). That
+    asymmetry is deliberate here: it is why the veto takes the lesser side, not both, and a
+    fixture with only one short column is what makes a min()->max() mutation fail.
+    """
+    chars = []
+    for row in range(6):
+        y = row * 12.0
+        for x in range(40, 288, 2):  # left: a full-width description cell, like prose
+            chars.append(FakeChar(x, x + 1, y, y + 10))
+        right_end = 540 if row == 0 else 360  # right: a wide header, then short cells
+        for x in range(312, right_end, 2):
+            chars.append(FakeChar(x, x + 1, y, y + 10))
+    return chars
+
+
+def test_a_borderless_table_is_not_split_and_prose_still_is():
+    """Both directions in one assertion, for the same reason the inversion test is: a veto
+    that fires on everything would stop the welds by refusing every crop, regressing #42 in
+    silence; one that fires on nothing leaves the table scrambled. The table must lose its
+    gutter and the prose must keep it."""
+    assert find_gutter(two_column_table_chars(), page_width=600) is None, (
+        "a borderless table's column boundary was cropped — every row torn in half (#44)"
+    )
+    assert find_gutter(two_column_chars(), page_width=600) is not None, (
+        "the veto refused a genuine prose gutter — this welds the columns, regressing #42"
+    )
+
+
+def test_the_table_signal_separates_cells_from_prose():
+    """The discriminator in isolation, so a mutation to the threshold or the min() is caught
+    even if find_gutter's other guards happened to mask it. A table cell fills little of its
+    column; a prose line reaches the margin. Measured on KDIGO, tabular bands sit at or below
+    19% full-width lines and prose floors at 57%, so the check lives at 30%.
+
+    The table's left column is full-width (like prose) and only its right column is short,
+    so min() calls it a table and max() would not — the assertion that catches a min()->max()
+    mutation. Prose is full-width on both sides, so neither reduction lets it through.
+    """
+    from app.services.columns import _looks_like_borderless_table
+
+    # A gutter split placed safely inside each fixture's empty band (~288..312).
+    assert _looks_like_borderless_table(two_column_table_chars(), 295, 310) is True
+    assert _looks_like_borderless_table(two_column_chars(), 295, 310) is False
+    # and end to end, the whole find_gutter refuses the table and keeps the prose.
+    assert find_gutter(two_column_table_chars(), page_width=600, table_bboxes=[]) is None
+
+
+def test_a_tall_two_column_block_is_never_called_a_table():
+    """The height cap, reached on purpose. Indented prose — numbered recommendations with
+    hanging indents — has short lines like a table's, and on KDIGO it floors the fill signal
+    at 57% only because it runs a full page. A short band of the same text could dip lower,
+    so the veto refuses to fire on anything taller than a table's band. This protects the one
+    demonstrated prose false-positive mode (KDIGO p117, a 660pt recommendation block) by
+    construction, behind the fill threshold rather than relying on it alone."""
+    from app.services.columns import MAX_TABLE_BAND_HEIGHT, _looks_like_borderless_table
+
+    # The table fixture, but stretched past the cap: same short-cell shape, taller than any
+    # table band. It must not be vetoed however short its lines are.
+    tall = []
+    step = (MAX_TABLE_BAND_HEIGHT + 60) / 6
+    for row in range(6):
+        y = row * step
+        for x in range(40, 70, 2):
+            tall.append(FakeChar(x, x + 1, y, y + 10))
+        right_end = 540 if row == 0 else 360
+        for x in range(312, right_end, 2):
+            tall.append(FakeChar(x, x + 1, y, y + 10))
+
+    assert (tall[-1]["bottom"] - tall[0]["top"]) > MAX_TABLE_BAND_HEIGHT
+    assert _looks_like_borderless_table(tall, 180, 312) is False
+
+
+@pytest.mark.skipif(not KDIGO.exists(), reason="needs storage/kdigo_2012_ckd.pdf")
+def test_the_gfr_classification_table_reads_across_not_down():
+    """The table this fix exists for. KDIGO's GFR-category table is the most-cited table in
+    the guideline — 'how is CKD classified by GFR' — and #42 read it column-wise, detaching
+    'G1' from 'Normal or high' so a correct model quote of it failed #19 and the clinician
+    got no answer. Read across, each stage code sits on the same line as its category term.
+    """
+    from app.services.extraction import extract_pdf
+
+    doc = extract_pdf(KDIGO)
+    page = next(p for p in doc.pages if p.number == 18)
+    row = next(
+        (ln for ln in page.text.split("\n") if "G1" in ln and "Normal or high" in ln), None
+    )
+
+    assert row is not None, (
+        "the GFR table is scrambled: 'G1' and 'Normal or high' landed on different lines, "
+        "so the table was read down its columns instead of across its rows (#44)"
+    )
+
+
 # --- the outcome, on the real document ------------------------------------------------
 
 
