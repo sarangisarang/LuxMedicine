@@ -97,8 +97,16 @@ def test_the_real_guideline_is_damaged_and_extraction_says_so():
     doc = extract_pdf(KDIGO)
 
     assert doc.glyph_damage, "the damage is real and extraction must report it"
-    assert len(doc.damaged_pages) == 18
-    assert doc.damage_ratio(len(doc.pages)) == pytest.approx(0.11, abs=0.01)
+
+    # 11 pages have unresolved glyphs among the pages still extracted. The original count
+    # was 18, but 7 of those were landscape tables that are now held out whole for rotation
+    # (#43 follow-up) — a page read backwards has no salvageable lines to report glyph
+    # damage on, so its whole is unreadable rather than 65 of its glyphs. `damaged_pages`
+    # is the superset: 11 glyph-damaged + 10 rotated = 21, no overlap.
+    glyph_pages = {d.page for d in doc.glyph_damage}
+    assert len(glyph_pages) == 11
+    assert set(doc.rotated_pages).isdisjoint(glyph_pages)
+    assert len(doc.damaged_pages) == 21
 
     # Against page.chars, not against a number I once wrote down. A glyph is a property
     # of the PDF: no extraction strategy can change how many there are. Column-aware
@@ -108,14 +116,23 @@ def test_the_real_guideline_is_damaged_and_extraction_says_so():
     # as what it was.
     import pdfplumber
 
+    # Only pages that were actually extracted. A page held out whole (rotated, #43
+    # follow-up) contributes no chunks and no glyph_damage, so its glyphs must be excluded
+    # from the ground truth too — otherwise the two disagree by exactly the held-out
+    # count, which is correct behaviour, not a regression.
+    held_out = set(doc.rotated_pages)
     with pdfplumber.open(KDIGO) as pdf:
         truth = sum(
-            1 for page in pdf.pages for c in page.chars if c["text"].startswith("(cid:")
+            1
+            for page in pdf.pages
+            if page.page_number not in held_out
+            for c in page.chars
+            if c["text"].startswith("(cid:")
         )
 
     assert sum(d.count for d in doc.glyph_damage) == truth, (
-        "extraction reports a different number of unresolved glyphs than the PDF has — "
-        "characters are being read twice, or dropped"
+        "extraction reports a different number of unresolved glyphs than the extracted "
+        "pages have — characters are being read twice, or dropped"
     )
 
     # The page numbers are the point: an operator can open the PDF there and judge.

@@ -255,9 +255,14 @@ def test_the_glyph_count_is_unchanged_by_the_tolerance():
     from app.services.extraction import extract_pdf
 
     doc = extract_pdf(_KDIGO)
+    held_out = set(doc.rotated_pages)
     with pdfplumber.open(_KDIGO) as pdf:
         truth = sum(
-            1 for page in pdf.pages for c in page.chars if c["text"].startswith("(cid:")
+            1
+            for page in pdf.pages
+            if page.page_number not in held_out
+            for c in page.chars
+            if c["text"].startswith("(cid:")
         )
 
     assert sum(d.count for d in doc.glyph_damage) == truth

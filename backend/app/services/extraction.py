@@ -82,6 +82,19 @@ LINE_SEPARATOR = "\n"
 # make, not a knob to expose.
 X_TOLERANCE = 2.0
 
+# When a page is *this* full of sideways characters, it is a landscape table printed with
+# the text rotated 90 degrees, and pdfplumber reads rotated glyphs in reversed visual
+# order (#43 follow-up). Measured on KDIGO: 10 of 163 pages are 97-99% rotated characters
+# and come out backwards — 'yassadnanoitarbilacrCS' is 'SCr calibration and assay' read
+# right to left. The other 153 pages are below 10%.
+#
+# Detected from the characters, not from page.rotation (empty here — the page is upright,
+# only its content is turned) and not from width>height (these pages are portrait; the
+# table was rotated, not the sheet). Both proxies missed all ten; upright=False caught all
+# ten with nothing spurious. The signal has to be the thing that is actually wrong, which
+# is the glyphs' orientation.
+ROTATED_PAGE_SHARE = 0.5
+
 
 
 # pdfplumber's placeholder for a glyph whose font declares no ToUnicode mapping. The PDF
@@ -166,9 +179,15 @@ class ExtractedDocument:
     # every check the system has.
     glyph_damage: list[GlyphDamage] = field(default_factory=list)
 
+    # Pages whose characters are mostly rotated — landscape tables read backwards
+    # (#43 follow-up). Held out of the corpus like glyph-damaged chunks, and surfaced on
+    # damaged_pages so a clinician is told this document has holes and where. A reversed
+    # dosing table quoted verbatim passes #19 exactly as a broken formula does.
+    rotated_pages: list[int] = field(default_factory=list)
+
     @property
     def damaged_pages(self) -> list[int]:
-        return sorted({d.page for d in self.glyph_damage})
+        return sorted({d.page for d in self.glyph_damage} | set(self.rotated_pages))
 
     def damage_ratio(self, page_count: int) -> float:
         return len(self.damaged_pages) / page_count if page_count else 0.0
@@ -208,6 +227,26 @@ def _normalise(raw: str) -> str:
     missed hit rather than a corrupted quote.
     """
     return unicodedata.normalize("NFC", raw).replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _is_rotated(page) -> bool:
+    """Whether the page's text is turned 90 degrees, so it would extract backwards.
+
+    Measured from the characters' own orientation, because that is the thing that is
+    wrong. page.rotation is empty on these pages (the sheet is upright, the table on it is
+    turned) and they are portrait, so width>height misses them; both proxies flagged none
+    of the ten real cases. `upright=False` flagged all ten and nothing else.
+    """
+    chars = [c for c in page.chars if c.get("text", "").strip()]
+    if len(chars) < MIN_CHARS_FOR_ROTATION:
+        return False
+    sideways = sum(1 for c in chars if not c.get("upright", True))
+    return sideways / len(chars) > ROTATED_PAGE_SHARE
+
+
+# A near-empty page has no reading order to corrupt, and a stray rotated watermark on one
+# should not condemn it. The threshold is a share; this stops it dividing by almost nothing.
+MIN_CHARS_FOR_ROTATION = 50
 
 
 def _lines_in_reading_order(page) -> list[dict]:
@@ -280,6 +319,7 @@ def extract_pdf(path: Path) -> ExtractedDocument:
     lines: list[Line] = []
     empty_pages: list[int] = []
     glyph_damage: list[GlyphDamage] = []
+    rotated_pages: list[int] = []
     all_char_sizes: list[float] = []
     cursor = 0
 
@@ -287,6 +327,16 @@ def extract_pdf(path: Path) -> ExtractedDocument:
         page_count = len(pdf.pages)
 
         for index, page in enumerate(pdf.pages, start=1):
+            if _is_rotated(page):
+                # A landscape table turned 90 degrees. Its text extracts backwards, so it
+                # is held out of the corpus rather than stored as a reversed string that
+                # #19 would then bless. Recorded like an empty page: kept in the ledger
+                # with a zero-width span so page numbering stays aligned, and reported on
+                # damaged_pages so the clinician is told a page could not be read.
+                rotated_pages.append(index)
+                pages.append(PageText(number=index, text="", char_start=cursor, char_end=cursor))
+                continue
+
             raw_lines = _lines_in_reading_order(page)
             page_line_texts = [_normalise(line["text"]) for line in raw_lines]
 
@@ -340,5 +390,6 @@ def extract_pdf(path: Path) -> ExtractedDocument:
         lines=lines,
         empty_pages=empty_pages,
         glyph_damage=glyph_damage,
+        rotated_pages=rotated_pages,
         body_font_size=_modal_size(all_char_sizes),
     )
