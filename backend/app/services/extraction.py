@@ -50,6 +50,39 @@ from app.services.columns import find_regions
 PAGE_SEPARATOR = "\n\n"
 LINE_SEPARATOR = "\n"
 
+# How wide a gap between two glyphs has to be before it counts as a space (#43).
+#
+# PDFs frequently carry no space characters at all: words are separated by glyph
+# positioning, and the extractor infers a space when the gap exceeds this. pdfplumber
+# defaults to 3.0, which is too wide for KDIGO's typeface — so it inferred nothing and
+# glued. 4.8% of the corpus's tokens came back over 20 characters long, the worst at 117:
+#
+#   'Geneticdiseasesarenotconsideredseparatelybecausesomediseasesineachcategoryarenowrecognized'
+#
+# **The bug that made this matter.** Asked when to refer a CKD patient, the model quoted
+# p84 correctly and #19 rejected it — because p84's chunk said
+# "anindicationforreferraloncepotentially" and the model, reading it, restored the spaces
+# a human would. normalise() collapses whitespace runs; it cannot insert whitespace that
+# was never there. The model was punished for being legible, and I diagnosed it as a
+# hallucination, then a paraphrase, then a synthesis, before reading the PDF.
+#
+# 2.0 is measured, not chosen for sounding safe. It is the minimum of the curve: the only
+# value with zero glued tokens *and* the fewest fragments (1-2 letter non-words, the
+# signature of a word torn in half). Below it, over-splitting begins — the same damage in
+# the other direction.
+#
+#     x_tol   glued   fragments
+#      3.0     115      3.1%     <- pdfplumber's default
+#      2.0       0      2.8%     <- here
+#      1.0       0      3.5%
+#
+# Per-document tuning is the obvious next thought, and is refused for the reason
+# body_font_size self-calibrates: a threshold that needs tuning is wrong on the document
+# nobody tested. If another publisher's typeface glues at 2.0, that is a measurement to
+# make, not a knob to expose.
+X_TOLERANCE = 2.0
+
+
 
 # pdfplumber's placeholder for a glyph whose font declares no ToUnicode mapping. The PDF
 # says "draw glyph N from this font" and never says which character N is, so the meaning
@@ -206,7 +239,7 @@ def _lines_in_reading_order(page) -> list[dict]:
     )
 
     if not any(region.is_two_column for region in regions):
-        return page.extract_text_lines(return_chars=True)
+        return page.extract_text_lines(return_chars=True, x_tolerance=X_TOLERANCE)
 
     lines: list[dict] = []
     for region in regions:
@@ -221,15 +254,15 @@ def _lines_in_reading_order(page) -> list[dict]:
         )
         if region.gutter is None:
             # A figure, a heading, a table across the page. Read across, in place.
-            lines.extend(band.extract_text_lines(return_chars=True))
+            lines.extend(band.extract_text_lines(return_chars=True, x_tolerance=X_TOLERANCE))
             continue
         # Left column of this band, then right. Bands stay in page order, so a figure
         # between two column regions stays between them rather than migrating to the top.
         gutter_x = region.gutter.x
         left = band.filter(lambda obj, g=gutter_x: obj.get("x1", 0) <= g)
         right = band.filter(lambda obj, g=gutter_x: obj.get("x0", 0) >= g)
-        lines.extend(left.extract_text_lines(return_chars=True))
-        lines.extend(right.extract_text_lines(return_chars=True))
+        lines.extend(left.extract_text_lines(return_chars=True, x_tolerance=X_TOLERANCE))
+        lines.extend(right.extract_text_lines(return_chars=True, x_tolerance=X_TOLERANCE))
     return lines
 
 

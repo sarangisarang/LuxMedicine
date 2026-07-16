@@ -5,6 +5,7 @@ A fixture that returns page text on demand would test the ledger while flatterin
 parser — and the parser is half of what can go wrong here.
 """
 
+import pathlib
 from pathlib import Path
 
 import pytest
@@ -202,3 +203,61 @@ def test_span_past_the_end_is_rejected(guideline):
     doc = extract_pdf(guideline)
     with pytest.raises(ValueError):
         doc.pages_for_span(0, len(doc.text) + 1)
+
+
+# --- x_tolerance: the spaces PDFs do not store (#43) --------------------------------
+
+_KDIGO = pathlib.Path(__file__).resolve().parents[1] / "storage" / "kdigo_2012_ckd.pdf"
+
+
+@pytest.mark.skipif(not _KDIGO.exists(), reason="needs storage/kdigo_2012_ckd.pdf")
+def test_words_are_not_glued_together():
+    """The bug that made the model look like a liar.
+
+    p84 stored "anindicationforreferraloncepotentially" with no spaces — PDFs often carry
+    none, and pdfplumber's default x_tolerance=3 was too wide to infer them for this
+    typeface. The model quoted it correctly *with* the spaces restored, and #19 rejected
+    it because the chunk had none.
+
+    A token over 20 characters is, in English clinical prose, a concatenation. Measured:
+    3,952 of them at the default (4.8% of all tokens), the worst 117 characters. At
+    x_tolerance=2.0 this must be a small fraction of that.
+    """
+    import re
+
+    from app.services.extraction import extract_pdf
+
+    doc = extract_pdf(_KDIGO)
+    tokens = re.findall(r"[A-Za-z]{2,}", doc.text)
+    glued = [t for t in tokens if len(t) > 20]
+
+    assert len(glued) < 800, (
+        f"{len(glued)} tokens over 20 chars — it was 3,952 at the default tolerance. "
+        "Words are being glued again."
+    )
+
+    # The sentence that started #43, whole.
+    i = doc.text.find("Rapid sustained decline in GFR")
+    assert i > 0
+    window = doc.text[i : i + 90].replace("\n", " ")
+    assert "an indication for referral" in window, (
+        f"the spaces are gone again: {window!r}"
+    )
+
+
+@pytest.mark.skipif(not _KDIGO.exists(), reason="needs storage/kdigo_2012_ckd.pdf")
+def test_the_glyph_count_is_unchanged_by_the_tolerance():
+    """x_tolerance decides where a line splits into words. It must not change which
+    characters exist — the unresolved-glyph total is the same property of the PDF it
+    always was, and a spacing knob that moved it would be doing something else."""
+    import pdfplumber
+
+    from app.services.extraction import extract_pdf
+
+    doc = extract_pdf(_KDIGO)
+    with pdfplumber.open(_KDIGO) as pdf:
+        truth = sum(
+            1 for page in pdf.pages for c in page.chars if c["text"].startswith("(cid:")
+        )
+
+    assert sum(d.count for d in doc.glyph_damage) == truth
