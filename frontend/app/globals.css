@@ -24,3 +24,13 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* #35 — highlight the cited quote on the PDF text layer. The text layer sits invisible over
+   the rendered page (its text is transparent), so a translucent background on the matched
+   fragments reads as a highlight over the words. Keep the text transparent so the canvas
+   underneath stays the only visible glyphs. */
+.textLayer .pdf-hl {
+  background-color: rgba(250, 204, 21, 0.45);
+  color: transparent;
+  border-radius: 2px;
+}

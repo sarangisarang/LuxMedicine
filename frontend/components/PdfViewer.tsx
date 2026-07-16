@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
@@ -44,6 +44,33 @@ export function PdfViewer({
   }, []);
 
   const fileUrl = `/api/pdf/${citation.document_version_id}`;
+
+  // Highlight the cited quote on the page so verification is a glance, not a re-read. The
+  // PDF text layer is split into fragments that do not line up with the quote's boundaries,
+  // so match by word overlap rather than substring: a fragment most of whose significant
+  // words are in the quote is part of the quoted passage. Imperfect where the quote's words
+  // recur elsewhere on the page — a highlight is an aid to find the text, not a claim about
+  // it; the quote shown on the left is the verbatim record.
+  const quoteWords = useMemo(() => {
+    const words = citation.quote.toLowerCase().match(/[a-z0-9]+/g) ?? [];
+    return new Set(words.filter((w) => w.length >= 3));
+  }, [citation.quote]);
+
+  const highlightQuote = useCallback(
+    (item: { str: string }) => {
+      const escaped = item.str
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+      const words = (item.str.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter(
+        (w) => w.length >= 3,
+      );
+      if (words.length === 0) return escaped;
+      const overlap = words.filter((w) => quoteWords.has(w)).length / words.length;
+      return overlap >= 0.6 ? `<mark class="pdf-hl">${escaped}</mark>` : escaped;
+    },
+    [quoteWords],
+  );
 
   return (
     <div className="flex h-full flex-col">
@@ -106,6 +133,7 @@ export function PdfViewer({
                 width={width - 24}
                 renderTextLayer
                 renderAnnotationLayer
+                customTextRenderer={highlightQuote}
               />
             )}
           </Document>
