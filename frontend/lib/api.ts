@@ -1,0 +1,53 @@
+// The backend contract, in the frontend. Every type here is generated from the backend's
+// own OpenAPI schema (npm run gen:types), never hand-written — so AnswerPayload, the
+// no_answer_reason enum, rejected_citations and unreadable_pages cannot silently drift out
+// of sync with app/schemas/answer.py. If the backend changes the contract, `tsc` fails here
+// before a screen renders the wrong shape.
+
+import type { components } from "./api-types";
+import { API_URL } from "./config";
+
+export type QueryRequest = components["schemas"]["QueryRequest"];
+export type QueryResponse = components["schemas"]["QueryResponse"];
+export type AnswerPayload = components["schemas"]["AnswerPayload"];
+export type SourceGroup = components["schemas"]["SourceGroup"];
+export type Citation = components["schemas"]["Citation"];
+export type ConflictFinding = components["schemas"]["ConflictFinding"];
+export type NoAnswerReason = components["schemas"]["NoAnswerReason"];
+
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    readonly detail: string,
+  ) {
+    super(`backend ${status}: ${detail}`);
+    this.name = "ApiError";
+  }
+}
+
+/**
+ * POST /queries — ask the corpus. The token is the ONLY source of the clinician's identity
+ * and clinic (the tenant boundary RLS filters on); the request body carries no actor_id by
+ * design (see backend/app/api/queries.py). Runs server-side so the token never reaches the
+ * browser.
+ */
+export async function postQuery(
+  body: QueryRequest,
+  token: string,
+): Promise<QueryResponse> {
+  const response = await fetch(`${API_URL}/queries`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+    // The audit row must reflect a real request; never serve a cached answer.
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new ApiError(response.status, await response.text());
+  }
+  return (await response.json()) as QueryResponse;
+}

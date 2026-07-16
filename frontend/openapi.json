@@ -1,0 +1,738 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "LuxMedicine",
+    "description": "Clinical Search & Retrieval Engine. Returns source-attributed extracts from clinical guidelines. Does not diagnose, recommend, or advise.",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/documents/versions": {
+      "post": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Ingest a guideline PDF",
+        "description": "Hash, deduplicate, store, register.\n\nOrder matters. The bytes are hashed and staged to a temp file before anything\ntouches the database, so a rejected upload leaves no row behind \u2014 and the file only\nenters the store once the row is safely committed, so the store never holds a PDF\nthat no version points at.",
+        "operationId": "create_version_documents_versions_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_create_version_documents_versions_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionCreated"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "These bytes are already ingested, or the version label is taken"
+          },
+          "413": {
+            "description": "Upload exceeds the size limit"
+          },
+          "415": {
+            "description": "Not a PDF"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/queries": {
+      "post": {
+        "tags": [
+          "queries"
+        ],
+        "summary": "Post Query",
+        "description": "Ask the corpus. Recorded against the token's subject.\n\nEvery answer is a hash-chained audit row before it is a response body (#26). There is\nno unaudited way to query, which is the point of putting the audit inside the pipeline\nrather than in this handler: a second endpoint added later cannot forget to call it.",
+        "operationId": "post_query_queries_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/queries/{query_id}": {
+      "delete": {
+        "tags": [
+          "erasure"
+        ],
+        "summary": "Erase Query",
+        "description": "Erase one question. Idempotent.\n\nReturns 200 on a query that was already erased rather than 404 or 409: a retried\nrequest must not be able to make a caller think the erasure failed, and the second\ncall writes no second record.",
+        "operationId": "erase_query_queries__query_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "query_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Query Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ErasureRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErasureResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Health Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/audit/verify": {
+      "get": {
+        "summary": "Audit Verify",
+        "description": "Walk the caller's own chain end to end, and checkpoint it if intact.\n\n**The caller's clinic, from the token \u2014 there is no \"verify everything\" here.** Chains\nare per clinic (0011), so this is the endpoint a tenant uses to check their own trail,\nwhich is the only chain they can see and the only one they need. Verifying every\nclinic is an operator's job and lives in `cli/verify_chain.py`, where it belongs: it\nreads across tenants.\n\n**A break returns 500, not 200.** It used to return 200 with `{\"intact\": false}` in\nthe body, which is the sort of thing that reads fine and fails in production: every\ngeneric monitor \u2014 `curl -f`, an uptime check, a Kubernetes probe, a cron entry that\nchecks exit status \u2014 treats 200 as healthy. Scheduling that endpoint (#29) would have\nproduced a green dashboard over a rewritten trail. A check that reports its own\nfailure as success is worse than no check: it manufactures confidence.\n\n500 rather than a 4xx because a broken chain is not the caller's fault, and rather\nthan 503 because retrying will not help.",
+        "operationId": "audit_verify_audit_verify_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Audit Verify Audit Verify Get"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The chain is broken \u2014 the body says where and since when"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AnswerPayload": {
+        "properties": {
+          "query_language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Query Language"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/SourceGroup"
+            },
+            "type": "array",
+            "title": "Groups"
+          },
+          "conflicts": {
+            "items": {
+              "$ref": "#/components/schemas/ConflictFinding"
+            },
+            "type": "array",
+            "title": "Conflicts"
+          },
+          "no_answer_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NoAnswerReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rejected_citations": {
+            "type": "integer",
+            "title": "Rejected Citations",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "AnswerPayload",
+        "description": "Persisted verbatim into audit_log.response."
+      },
+      "Body_create_version_documents_versions_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 512,
+            "title": "Title"
+          },
+          "issuing_org": {
+            "$ref": "#/components/schemas/IssuingOrg"
+          },
+          "version_label": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Version Label"
+          },
+          "guideline_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Guideline Type"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file",
+          "title",
+          "issuing_org",
+          "version_label"
+        ],
+        "title": "Body_create_version_documents_versions_post"
+      },
+      "Citation": {
+        "properties": {
+          "chunk_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Chunk Id"
+          },
+          "document_version_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Document Version Id"
+          },
+          "document_title": {
+            "type": "string",
+            "title": "Document Title"
+          },
+          "issuing_org": {
+            "type": "string",
+            "title": "Issuing Org"
+          },
+          "version_label": {
+            "type": "string",
+            "title": "Version Label"
+          },
+          "page_start": {
+            "type": "integer",
+            "title": "Page Start"
+          },
+          "page_end": {
+            "type": "integer",
+            "title": "Page End"
+          },
+          "section": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Section"
+          },
+          "quote": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Quote",
+            "description": "A contiguous verbatim span of the cited chunk. Never paraphrased, never elided: two separate spans are two citations. Validated by #19 against the chunk text."
+          }
+        },
+        "type": "object",
+        "required": [
+          "chunk_id",
+          "document_version_id",
+          "document_title",
+          "issuing_org",
+          "version_label",
+          "page_start",
+          "page_end",
+          "quote"
+        ],
+        "title": "Citation",
+        "description": "A verbatim span of a source, and exactly where it came from.\n\n`quote` is the only clinical text in this schema. Everything else is provenance."
+      },
+      "ConflictFinding": {
+        "properties": {
+          "topic": {
+            "type": "string",
+            "title": "Topic"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "conflicting_group_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "minItems": 2,
+            "title": "Conflicting Group Ids",
+            "description": "document_version_ids of the diverging sources"
+          }
+        },
+        "type": "object",
+        "required": [
+          "topic",
+          "description",
+          "conflicting_group_ids"
+        ],
+        "title": "ConflictFinding",
+        "description": "Raised only when retrieval spans multiple issuing organisations and a comparison\npass finds them genuinely divergent.\n\nDivergence is reported, never resolved: we show both passages and let the clinician\njudge. Picking a winner would be the advice we are avoiding.\n\n**`description` is model prose and #19 does not validate it** \u2014 the same category of\nhole that removed `ExtractedStatement.text` above. It survives for now because it\nlabels a view in which both quotes are the content, rather than replacing them the\nway a statement headline did. That is a UI assumption living in a schema, which is\nfragile. Settle it at #24, before a prompt is written that fills it."
+      },
+      "ErasureRequest": {
+        "properties": {
+          "legal_basis": {
+            "$ref": "#/components/schemas/LegalBasis"
+          }
+        },
+        "type": "object",
+        "required": [
+          "legal_basis"
+        ],
+        "title": "ErasureRequest"
+      },
+      "ErasureResponse": {
+        "properties": {
+          "query_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Query Id"
+          },
+          "redacted_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Redacted At"
+          },
+          "erased_by": {
+            "type": "string",
+            "title": "Erased By"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail",
+            "default": "question and salt destroyed; the audit row remains and the chain still verifies. Which question was asked can no longer be established by anyone."
+          }
+        },
+        "type": "object",
+        "required": [
+          "query_id",
+          "redacted_at",
+          "erased_by"
+        ],
+        "title": "ErasureResponse"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "IssuingOrg": {
+        "type": "string",
+        "enum": [
+          "ESC",
+          "AHA",
+          "ACC",
+          "WHO",
+          "NICE",
+          "ADA",
+          "EASD",
+          "ESMO",
+          "ASCO",
+          "IDSA",
+          "KDIGO",
+          "GINA"
+        ],
+        "title": "IssuingOrg"
+      },
+      "LegalBasis": {
+        "type": "string",
+        "enum": [
+          "consent_withdrawn",
+          "no_longer_necessary",
+          "unlawful_processing",
+          "objection_upheld",
+          "legal_obligation",
+          "operator_request"
+        ],
+        "title": "LegalBasis",
+        "description": "Why an erasure was performed. An enum, and that is the security control.\n\nA free-text `reason` is where someone writes \"erased the question about the enalapril\ndose for the patient in bed 4\" \u2014 re-creating, in an append-only table, the thing that\nwas just destroyed. The issue calls this the recursion. The fix is not a warning in a\ncode review; it is that no field exists to hold prose."
+      },
+      "NoAnswerReason": {
+        "type": "string",
+        "enum": [
+          "no_relevant_sources",
+          "sources_do_not_answer",
+          "verification_failed"
+        ],
+        "title": "NoAnswerReason",
+        "description": "Why nothing is being shown \u2014 a closed set, not prose.\n\nFree text here would be the same hole that removed `ExtractedStatement.text`: a\nmodel asked to explain itself in an empty answer will write \"no guidance found,\nthough enalapril is generally used\" \u2014 advice, smuggled through the one field that\nwas meant to say there is none.\n\nAn enum leaves nothing to write into. The wording a clinician reads lives in the UI,\nwhere a human chose it.\n\nThe three are kept apart because conflating them tells a clinician the wrong thing.\n\"The corpus has nothing on this\" is a fact about the guidelines. \"The answer could\nnot be verified\" is a fact about us malfunctioning \u2014 and reporting our own failure as\nan absence of guidance would be the quietest lie this system could tell."
+      },
+      "QueryRequest": {
+        "properties": {
+          "question": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Question"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 16
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "include_archived": {
+            "type": "boolean",
+            "title": "Include Archived",
+            "default": false
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "default": 10
+          }
+        },
+        "type": "object",
+        "required": [
+          "question"
+        ],
+        "title": "QueryRequest"
+      },
+      "QueryResponse": {
+        "properties": {
+          "query_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Query Id"
+          },
+          "audit_seq": {
+            "type": "integer",
+            "title": "Audit Seq"
+          },
+          "actor_id": {
+            "type": "string",
+            "title": "Actor Id"
+          },
+          "answer": {
+            "$ref": "#/components/schemas/AnswerPayload"
+          }
+        },
+        "type": "object",
+        "required": [
+          "query_id",
+          "audit_seq",
+          "actor_id",
+          "answer"
+        ],
+        "title": "QueryResponse"
+      },
+      "SourceGroup": {
+        "properties": {
+          "issuing_org": {
+            "type": "string",
+            "title": "Issuing Org"
+          },
+          "version_label": {
+            "type": "string",
+            "title": "Version Label"
+          },
+          "document_version_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Document Version Id"
+          },
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/Citation"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Citations"
+          },
+          "is_superseded": {
+            "type": "boolean",
+            "title": "Is Superseded",
+            "default": false
+          },
+          "superseding_version_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Superseding Version Label"
+          },
+          "unreadable_pages": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Unreadable Pages"
+          }
+        },
+        "type": "object",
+        "required": [
+          "issuing_org",
+          "version_label",
+          "document_version_id",
+          "citations"
+        ],
+        "title": "SourceGroup",
+        "description": "What one issuing organisation's guideline says, in its own words.\n\nGrouped by organisation so a clinician sees *whose* guidance they are reading before\nthey read it \u2014 and so #23 can tell whether a result set spans more than one body."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "VersionCreated": {
+        "properties": {
+          "document_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Document Id"
+          },
+          "document_version_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Document Version Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "issuing_org": {
+            "$ref": "#/components/schemas/IssuingOrg"
+          },
+          "version_label": {
+            "type": "string",
+            "title": "Version Label"
+          },
+          "file_hash": {
+            "type": "string",
+            "title": "File Hash"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "title": "Size Bytes"
+          },
+          "status": {
+            "$ref": "#/components/schemas/VersionStatus"
+          }
+        },
+        "type": "object",
+        "required": [
+          "document_id",
+          "document_version_id",
+          "title",
+          "issuing_org",
+          "version_label",
+          "file_hash",
+          "size_bytes",
+          "status"
+        ],
+        "title": "VersionCreated"
+      },
+      "VersionStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "active",
+          "archived"
+        ],
+        "title": "VersionStatus"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  }
+}
