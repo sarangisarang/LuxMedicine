@@ -2,26 +2,8 @@
 
 import { useState } from "react";
 
-import type { Citation, QueryResponse, SourceGroup } from "@/lib/api";
-
-// The human wording for an empty answer. The backend deliberately returns only an enum
-// (NoAnswerReason) and no prose — "the wording a clinician reads lives in the UI, where a
-// human chose it" (app/schemas/answer.py). The three are kept distinct on purpose: "the
-// corpus has nothing" is a fact about the guidelines; "verification failed" is us
-// malfunctioning, and must never read as an absence of guidance.
-const NO_ANSWER_WORDING: Record<string, string> = {
-  no_relevant_sources: "No guideline in the corpus covers this question.",
-  sources_do_not_answer:
-    "Guidelines were found, but none of their passages answer this question.",
-  verification_failed:
-    "An answer was produced but could not be verified against its source, so it is being withheld. This is a system fault, not an absence of guidance.",
-};
-
-function pageDisplay(c: Citation): string {
-  return c.page_start === c.page_end
-    ? `p. ${c.page_start}`
-    : `pp. ${c.page_start}-${c.page_end}`;
-}
+import { AnswerView } from "@/components/AnswerView";
+import type { QueryResponse } from "@/lib/api";
 
 export default function Home() {
   const [question, setQuestion] = useState("");
@@ -98,82 +80,7 @@ export default function Home() {
         </p>
       )}
 
-      {answer && <Answer payload={answer} />}
+      {answer && <AnswerView answer={answer.answer} />}
     </main>
-  );
-}
-
-// Placeholder renderer — enough to prove the contract flows and to show the honest signals
-// (no-answer reason, rejected count, superseded, unreadable pages). The real #33 grouped
-// view and #35 jump-to-page PDF viewer are the next step; this is the base structure.
-function Answer({ payload }: { payload: QueryResponse }) {
-  const a = payload.answer;
-
-  if (!a.groups || a.groups.length === 0) {
-    return (
-      <section className="mt-8 rounded-md border border-neutral-300 p-4 dark:border-neutral-700">
-        <p className="text-sm text-neutral-700 dark:text-neutral-300">
-          {a.no_answer_reason
-            ? NO_ANSWER_WORDING[a.no_answer_reason]
-            : "No answer."}
-        </p>
-      </section>
-    );
-  }
-
-  return (
-    <section className="mt-8 space-y-6">
-      {(a.rejected_citations ?? 0) > 0 && (
-        <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
-          {a.rejected_citations} quote(s) were rejected as unverifiable and are not shown.
-        </p>
-      )}
-      {a.groups.map((g, i) => (
-        <Group key={i} group={g} />
-      ))}
-    </section>
-  );
-}
-
-// #33 — whose guidance it is, before the text is read. #36 — the staleness banner.
-function Group({ group }: { group: SourceGroup }) {
-  return (
-    <article className="rounded-md border border-neutral-300 dark:border-neutral-700">
-      <header className="border-b border-neutral-200 px-4 py-2 dark:border-neutral-800">
-        <span className="text-sm font-semibold">{group.issuing_org}</span>
-        <span className="ml-2 text-xs text-neutral-500">{group.version_label}</span>
-      </header>
-
-      {group.is_superseded && (
-        <p className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
-          This edition has been superseded
-          {group.superseding_version_label
-            ? ` by ${group.superseding_version_label}.`
-            : "."}
-        </p>
-      )}
-
-      <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
-        {group.citations.map((c, i) => (
-          <li key={i} className="px-4 py-3">
-            {/* quote is the only clinical text — verbatim, never paraphrased. */}
-            <blockquote className="border-l-2 border-neutral-300 pl-3 text-sm dark:border-neutral-600">
-              {c.quote}
-            </blockquote>
-            <p className="mt-1 text-xs text-neutral-500">
-              {c.document_title} · {pageDisplay(c)}
-              {c.section ? ` · ${c.section}` : ""}
-            </p>
-          </li>
-        ))}
-      </ul>
-
-      {group.unreadable_pages && group.unreadable_pages.length > 0 && (
-        <p className="border-t border-neutral-200 px-4 py-2 text-xs text-neutral-500 dark:border-neutral-800">
-          Pages {group.unreadable_pages.join(", ")} of this document could not be read and
-          are not reflected above.
-        </p>
-      )}
-    </article>
   );
 }
