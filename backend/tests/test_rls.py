@@ -255,6 +255,51 @@ async def test_one_clinics_uploaded_protocol_is_invisible_to_another(as_app, ses
     assert theirs == 0
 
 
+async def test_a_version_selected_by_id_is_filtered_for_another_clinic(as_app, session):
+    """The exact query the PDF endpoint (#35) runs: SELECT a document_version by primary
+    key. The other isolation tests select documents by title or count; this asserts the
+    by-id path a clinic uses to fetch a source file, so the endpoint's 404 for another
+    clinic's private version is the database's answer, not the handler's politeness.
+
+    A published version (NULL clinic) is fetched by both clinics; a private one only by its
+    owner — everyone else gets zero rows, indistinguishable from "no such id".
+    """
+    shared_doc, shared_ver = uuid.uuid4(), uuid.uuid4()
+    private_doc, private_ver = uuid.uuid4(), uuid.uuid4()
+    for doc, ver, clinic in [(shared_doc, shared_ver, None), (private_doc, private_ver, ALPHA)]:
+        await session.execute(
+            text(
+                "INSERT INTO documents (id, title, issuing_org, region, clinic_id) "
+                "VALUES (:id, :t, 'ESC', 'EU', :c)"
+            ),
+            {"id": doc, "t": f"Doc {uuid.uuid4().hex[:6]}", "c": clinic},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO document_versions (id, document_id, version_label, file_hash, "
+                "storage_uri, status) VALUES (:v, :d, '2024', :h, '/x.pdf', 'active')"
+            ),
+            {"v": ver, "d": doc, "h": uuid.uuid4().hex},
+        )
+    await session.commit()
+
+    async with as_app() as s:
+        await s.execute(text(f"SET LOCAL {TENANT_SETTING} = '{BETA}'"))
+        sees_shared = (
+            await s.execute(
+                text("SELECT count(*) FROM document_versions WHERE id = :v"), {"v": shared_ver}
+            )
+        ).scalar_one()
+        sees_private = (
+            await s.execute(
+                text("SELECT count(*) FROM document_versions WHERE id = :v"), {"v": private_ver}
+            )
+        ).scalar_one()
+
+    assert sees_shared == 1, "a published guideline's version must be fetchable by any clinic"
+    assert sees_private == 0, "beta selected alpha's private version by id — the PDF would leak"
+
+
 async def test_chunks_inherit_isolation_from_their_document(as_app, session):
     """chunks carry no clinic_id — the policy joins up to documents. A denormalised copy
     is a thing that can disagree, and a chunk whose clinic says one thing while its
