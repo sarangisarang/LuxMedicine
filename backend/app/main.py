@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import Depends, FastAPI, Response, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +12,33 @@ from app.services.chain_monitor import verify_and_checkpoint
 
 settings = get_settings()
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Wire the embedder and extractor the query endpoint needs.
+
+    `queries.get_embedder` / `get_extractor` raise NotImplementedError by default and say
+    they are "overridden in tests and at startup" — this is that startup. It lives here, not
+    at import time, for two reasons: loading `multilingual-e5-large` is slow and must not
+    happen just because something imports `app.main` (tests do, and supply their own doubles
+    via dependency_overrides, which this never clobbers because lifespan does not run under
+    ASGITransport); and building the embedder once, here, means the model is loaded a single
+    time for the process rather than per request.
+    """
+    from app.services.embedding import E5Embedder
+    from app.services.extractor_gemini import GeminiExtractor
+
+    embedder = E5Embedder()
+    extractor = GeminiExtractor()
+    app.dependency_overrides[queries.get_embedder] = lambda: embedder
+    app.dependency_overrides[queries.get_extractor] = lambda: extractor
+    try:
+        yield
+    finally:
+        app.dependency_overrides.pop(queries.get_embedder, None)
+        app.dependency_overrides.pop(queries.get_extractor, None)
+
+
 app = FastAPI(
     title="LuxMedicine",
     description=(
@@ -17,6 +46,7 @@ app = FastAPI(
         "clinical guidelines. Does not diagnose, recommend, or advise."
     ),
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 app.include_router(documents.router)
