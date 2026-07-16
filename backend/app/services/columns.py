@@ -168,7 +168,16 @@ MIN_BAND_HEIGHT = 48.0
 
 # Rows this far apart belong to different bands even if they agree — the gap between a
 # figure and the body text is itself a boundary.
-MAX_ROW_GAP = 3
+#
+# In rows (× ROW_HEIGHT = pt). 3 was calibrated on KDIGO and quietly wrong: at 12pt it
+# sat in the *middle* of KDIGO's own body line-pitch (9-14pt), so it fragmented a
+# two-column page into per-line bands, each then rejected by MIN_BAND_HEIGHT — and the
+# whole page read as one column and welded. It was invisible because KDIGO's two-column
+# pages are short bands under figures; a document that is two-column *throughout* with
+# normal 14pt leading exposed it. Measured line-gap distribution on KDIGO two-column
+# pages: body clusters at 9-14pt, real section/figure breaks jump to 25pt+. 5 rows (20pt)
+# sits cleanly between them — it bridges a normal line pitch and still breaks at a figure.
+MAX_ROW_GAP = 5
 
 
 @dataclass(frozen=True)

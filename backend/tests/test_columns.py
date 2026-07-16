@@ -415,3 +415,95 @@ def test_a_short_dense_band_is_refused_by_height_not_by_luck():
     assert not any(
         r.is_two_column for r in find_regions(chars, page_width=600, page_height=600)
     ), "a 36pt band is a heading, not a column region"
+
+
+# --- a full two-column page, through the real extractor (#42 generalisation) ---------
+
+
+def _build_two_column_pdf(path, *, leading: float, pages: int = 3):
+    """A PDF that is two-column top to bottom, with a known left and right topic.
+
+    reportlab is a dev dependency (it builds the extraction fixtures). Left column is about
+    sodium, right about potassium — nothing from one belongs in the other, so a welded line
+    is unmistakable. `leading` is the parameter that exposed the bug: KDIGO's bands are
+    tight, and MAX_ROW_GAP was calibrated below a normal line pitch.
+    """
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+
+    left = (
+        "The left column discusses sodium. Sodium restriction below two grams per day is "
+        "recommended for patients with resistant hypertension. Adherence remains the "
+        "principal difficulty and dietary counselling is essential for any benefit."
+    ).split()
+    right = (
+        "The right column discusses potassium. Potassium supplementation is contraindicated "
+        "in reduced kidney function because of hyperkalaemia. Serum levels must be monitored "
+        "whenever a renin inhibitor is introduced to prevent dangerous accumulation."
+    ).split()
+
+    def column(c, words, x, width, top=800):
+        y, line = top, ""
+        for w in words:
+            if c.stringWidth(f"{line} {w}".strip(), "Helvetica", 10) > width:
+                c.drawString(x, y, line)
+                y -= leading
+                line = w
+            else:
+                line = f"{line} {w}".strip()
+        if line:
+            c.drawString(x, y, line)
+
+    c = canvas.Canvas(str(path), pagesize=A4)
+    for _ in range(pages):
+        c.setFont("Helvetica", 10)
+        column(c, left, 50, 220)
+        column(c, right, 310, 220)
+        c.showPage()
+    c.save()
+
+
+def test_a_full_two_column_page_reads_down_then_across(tmp_path):
+    """The caveat #42 left open: find_regions was proven on KDIGO's two-column *bands*,
+    never on a page that is two-column *throughout*. Built here at 14pt leading — normal
+    for 10pt text — which is what exposed MAX_ROW_GAP sitting below a real line pitch and
+    fragmenting every such page into per-line bands that MIN_BAND_HEIGHT then discarded.
+    The page then read as one column and welded.
+    """
+    from app.services.extraction import extract_pdf
+
+    pdf = tmp_path / "twocol.pdf"
+    _build_two_column_pdf(pdf, leading=14.0)
+
+    doc = extract_pdf(pdf)
+    lines = [ln for ln in doc.pages[0].text.split("\n") if ln.strip()]
+
+    # No line may contain both topics: that is a weld across the gutter.
+    for line in lines:
+        low = line.lower()
+        assert not ("sodium" in low and "potassium" in low), f"welded across the gutter: {line!r}"
+
+    # The whole left column precedes the whole right — read down, then across.
+    joined = " ".join(lines).lower()
+    assert joined.find("sodium") < joined.find("potassium")
+    assert "the right column discusses potassium" in joined
+
+
+def test_the_detector_survives_loose_leading(tmp_path):
+    """The specific regression. At 16pt leading a two-column page must still be detected;
+    MAX_ROW_GAP must bridge a normal line pitch, not cut through it."""
+    import pdfplumber
+
+    from app.services.columns import find_regions
+
+    pdf = tmp_path / "loose.pdf"
+    _build_two_column_pdf(pdf, leading=16.0)
+
+    with pdfplumber.open(pdf) as opened:
+        page = opened.pages[0]
+        regions = find_regions(page.chars, page_width=page.width, page_height=page.height)
+
+    assert any(r.is_two_column for r in regions), (
+        "a two-column page at 16pt leading read as single-column — MAX_ROW_GAP is below "
+        "the line pitch again"
+    )
