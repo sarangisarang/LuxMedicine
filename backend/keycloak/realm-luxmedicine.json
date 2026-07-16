@@ -1,16 +1,4 @@
 {
-  "_comment": [
-    "Development realm, imported on `docker compose up keycloak`. Not a production",
-    "configuration: the passwords are in this file, the container runs start-dev over",
-    "plain HTTP with an in-memory database, and every user here is fictional.",
-    "",
-    "The load-bearing part is `luxmedicine-audience` below. Keycloak does NOT put the",
-    "client id in `aud` by default — it puts `account`, and the client id goes to `azp`.",
-    "Without this mapper every token is rejected by app/core/auth.py, which checks the",
-    "audience. That check is not ceremony: without it, any token this realm ever signed",
-    "is accepted, including other clients' users and service accounts. The mapper is how",
-    "a token says who it was addressed to."
-  ],
   "realm": "luxmedicine",
   "enabled": true,
   "accessTokenLifespan": 900,
@@ -21,22 +9,7 @@
       "enabled": true,
       "publicClient": true,
       "standardFlowEnabled": true,
-      "_comment_directAccessGrants": [
-        "Password grant, so a token can be fetched with curl while developing:",
-        "  curl -d grant_type=password -d client_id=luxmedicine-api \\",
-        "       -d username=dr.smith -d password=dev-password \\",
-        "       http://localhost:8081/realms/luxmedicine/protocol/openid-connect/token",
-        "This belongs in a dev realm and nowhere else — it hands the user's password to",
-        "the client, which is the flow OAuth 2.1 removed for that reason."
-      ],
       "directAccessGrantsEnabled": true,
-      "_comment_clinic_id": [
-        "app/core/auth.py refuses any token with no clinic_id claim — it is the tenant",
-        "boundary row-level security filters on (#31), and there is no default clinic to",
-        "fall back to. So the token MUST carry it: this mapper copies the user's clinic_id",
-        "attribute (set on dr.smith below) into the access token as the `clinic_id` claim.",
-        "Without both the mapper and the attribute, every dev token is rejected 401."
-      ],
       "protocolMappers": [
         {
           "name": "luxmedicine-audience",
