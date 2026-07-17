@@ -115,3 +115,49 @@ def describe_row(label: str, mapping: list[tuple[str, str]]) -> str:
     """
     cells = ", ".join(f"{header}: {value}" for header, value in mapping)
     return f"{label.strip()} — {cells}"
+
+
+_ROW_TOLERANCE = 4.0  # words within this many points of top share a row
+
+
+def _rows(words: list[dict]) -> list[list[dict]]:
+    """Group a page's words into rows by their vertical position, top to bottom."""
+    rows: list[list[dict]] = []
+    for word in sorted(words, key=lambda w: (w["top"], w["x0"])):
+        if rows and abs(word["top"] - rows[-1][0]["top"]) <= _ROW_TOLERANCE:
+            rows[-1].append(word)
+        else:
+            rows.append([word])
+    return rows
+
+
+def self_describing_lines(words: list[dict]) -> list[str]:
+    """Self-describing lines for every mappable category-table row on a page (#48).
+
+    Given a page's words (each with text/x0/x1/top), find each method-header row and, for the
+    data rows beneath it, emit "<row label> — Method: category, ..." — but only for rows that
+    map without ambiguity (see map_row). Rows that do not map are silently skipped: this only
+    ADDS answerable text, it never replaces or removes what extraction already produced, so a
+    page with no clean table simply yields nothing and nothing is at risk.
+    """
+    rows = _rows(words)
+    out: list[str] = []
+    columns: list[MethodColumn] | None = None
+    for row in rows:
+        header = find_method_columns(row)
+        if header is not None:
+            columns = header
+            continue
+        if columns is None:
+            continue
+        mapping = map_row(row, columns)
+        if mapping is None:
+            continue
+        # The row label is the text left of the first value column — the Condition cell.
+        first_col = columns[0].x
+        label_words = [w for w in row if (w["x0"] + w["x1"]) / 2 < first_col - _ALIGN_TOLERANCE]
+        label = " ".join(w["text"] for w in sorted(label_words, key=lambda w: w["x0"]))
+        if not re.search(r"[A-Za-z]", label):
+            continue
+        out.append(describe_row(label, mapping))
+    return out

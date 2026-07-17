@@ -1,0 +1,134 @@
+"""Add self-describing table rows to an already-indexed document, without deleting anything (#48).
+
+    python -m app.cli.augment_tables --org CDC            # report what would be added
+    python -m app.cli.augment_tables --org CDC --apply     # add them
+
+The self-describing rows of #48 ("ii. With aura — Cu-IUD: 1, ..., CHC: 4*") reach a clinician
+only once they are in the index. A full re-index cannot do it here: the existing chunks are
+cited by the audit trail and must not be deleted (the row has to survive for the trail to
+resolve), and the same PDF cannot be registered as a new version (file_hash is unique). Both
+constraints are correct — so this ADDS the self-describing rows as new chunks on the existing
+version, alongside the originals, and deletes nothing.
+
+The original headerless-row chunks stay searchable; the guard still refuses them. The new
+self-describing chunks are what answer the question — they retrieve on it and quote cleanly with
+each category carrying its method. A little content is duplicated (the table row, twice), which
+is the price of never touching a cited chunk.
+
+Idempotent: a row already present as a chunk is skipped, so a second run adds nothing. Local
+embedder, no quota. Report-first; only --apply writes.
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import sys
+import uuid
+
+import pdfplumber
+from sqlalchemy import func, insert, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
+
+from app.core.config import get_settings
+from app.models.chunk import Chunk
+from app.models.document import Document, DocumentVersion
+from app.services import storage
+from app.services.embedding import E5Embedder
+from app.services.references import looks_like_reference
+from app.services.table_extraction import self_describing_lines
+
+
+def _rows_for_version(pdf_path) -> list[tuple[int, str]]:
+    """(page_number, self_describing_line) for every mappable table row in the PDF."""
+    out: list[tuple[int, str]] = []
+    with pdfplumber.open(pdf_path) as pdf:
+        for index, page in enumerate(pdf.pages, start=1):
+            for line in self_describing_lines(page.extract_words()):
+                out.append((index, line))
+    return out
+
+
+async def _run(org: str, apply: bool) -> int:
+    settings = get_settings()
+    engine = create_async_engine(settings.database_url, poolclass=NullPool)
+    maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    embedder: E5Embedder | None = None
+    try:
+        async with maker() as session:
+            versions = (
+                await session.execute(
+                    select(DocumentVersion.id, DocumentVersion.storage_uri, Document.title)
+                    .join(Document, DocumentVersion.document_id == Document.id)
+                    .where(Document.issuing_org == org)
+                )
+            ).all()
+            if not versions:
+                print(f"no versions with issuing_org={org!r}; nothing to do")
+                return 1
+
+            total_new = 0
+            for vid, storage_uri, title in versions:
+                rows = _rows_for_version(storage.resolve(storage_uri, root=settings.storage_root))
+                existing = {
+                    c for (c,) in (
+                        await session.execute(
+                            select(Chunk.content).where(Chunk.document_version_id == vid)
+                        )
+                    ).all()
+                }
+                fresh = [(pg, line) for pg, line in rows if line not in existing]
+                print(f"  {title[:46]:46} {len(rows):>4} mappable rows, {len(fresh):>4} new")
+                total_new += len(fresh)
+
+                if not apply or not fresh:
+                    continue
+
+                if embedder is None:
+                    embedder = E5Embedder()
+                base = (
+                    await session.execute(
+                        select(func.coalesce(func.max(Chunk.ordinal), 0)).where(
+                            Chunk.document_version_id == vid
+                        )
+                    )
+                ).scalar_one()
+                vectors = embedder.embed_passages([line for _, line in fresh])
+                payload = [
+                    {
+                        "id": uuid.uuid4(),
+                        "document_version_id": vid,
+                        # After the originals, so ordinals stay unique and monotonic.
+                        "ordinal": base + 1 + i,
+                        "page_start": pg,
+                        "page_end": pg,
+                        "section": None,
+                        "content": line,
+                        "embedding": vector,
+                        # A category table row is guidance, never a reference.
+                        "is_reference": looks_like_reference(line),
+                    }
+                    for i, ((pg, line), vector) in enumerate(zip(fresh, vectors, strict=True))
+                ]
+                await session.execute(insert(Chunk), payload)
+                await session.commit()
+                print(f"    added {len(payload)} self-describing chunks to {title[:40]}")
+
+            if not apply:
+                print(f"\nreport only — {total_new} rows would be added. Pass --apply, then run the eval.")
+        return 0
+    finally:
+        await engine.dispose()
+
+
+def main(argv: list[str] | None = None) -> int:
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--org", required=True, help="issuing_org to augment (e.g. CDC)")
+    p.add_argument("--apply", action="store_true", help="write the new chunks (default: report only)")
+    args = p.parse_args(argv)
+    return asyncio.run(_run(args.org, args.apply))
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -16,6 +16,7 @@ from app.services.table_extraction import (
     describe_row,
     find_method_columns,
     map_row,
+    self_describing_lines,
 )
 
 
@@ -118,3 +119,39 @@ class TestDescribeRow:
         cols = find_method_columns(P124_HEADER)
         line = describe_row("Migraine with aura", map_row(P124_WITH_AURA, cols))
         assert looks_like_headerless_table_row(line) is False
+
+
+class TestSelfDescribingLines:
+    """The page-level pass that finds the header, then describes each data row beneath it."""
+
+    def _row(self, top: float, *cells: tuple[str, float]) -> list[dict]:
+        return [{"text": t, "x0": x - 5, "x1": x + 5, "top": top} for t, x in cells]
+
+    def test_a_page_with_a_header_and_two_rows(self):
+        words = (
+            self._row(89, ("Condition", 51), ("Cu-IUD", 176), ("LNG-IUD", 249),
+                      ("Implant", 321), ("DMPA", 394), ("POP", 467), ("CHC", 540))
+            + self._row(184, ("Without", 61), ("aura", 81),
+                        ("1", 176), ("1", 249), ("1", 321), ("1", 394), ("1", 467), ("2*", 540))
+            + self._row(201, ("With", 57), ("aura", 72),
+                        ("1", 176), ("1", 249), ("1", 321), ("1", 394), ("1", 467), ("4*", 540))
+        )
+        lines = self_describing_lines(words)
+        assert any("With aura — Cu-IUD: 1" in ln and "CHC: 4*" in ln for ln in lines)
+        assert any("Without aura" in ln and "CHC: 2*" in ln for ln in lines)
+
+    def test_a_page_with_no_header_yields_nothing(self):
+        # Data-shaped rows but no method header above them: nothing is mapped. The pass only
+        # ADDS text where it is certain; a page with no clean table is left untouched.
+        words = self._row(201, ("With", 57), ("aura", 72), ("1", 176), ("1", 249))
+        assert self_describing_lines(words) == []
+
+    def test_rows_before_the_header_are_not_described(self):
+        # A row above the header line has no columns yet — skipped, not mis-mapped.
+        words = (
+            self._row(50, ("Stray", 57), ("1", 176), ("1", 249), ("1", 321),
+                      ("1", 394), ("1", 467), ("4*", 540))
+            + self._row(89, ("Condition", 51), ("Cu-IUD", 176), ("LNG-IUD", 249),
+                        ("Implant", 321), ("DMPA", 394), ("POP", 467), ("CHC", 540))
+        )
+        assert self_describing_lines(words) == []

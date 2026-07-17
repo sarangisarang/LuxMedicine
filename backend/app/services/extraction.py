@@ -44,6 +44,7 @@ from pathlib import Path
 import pdfplumber
 
 from app.services.columns import find_regions
+from app.services.table_extraction import self_describing_lines
 
 # Pages are joined by a blank line. It belongs to no page: a chunk boundary landing in
 # the gap resolves to the page before it, which is where its text actually came from.
@@ -370,6 +371,28 @@ def extract_pdf(path: Path) -> ExtractedDocument:
                     )
                 )
                 cursor += len(text) + len(LINE_SEPARATOR)
+
+            # #48: append a self-describing line for each cleanly-mappable category-table row
+            # ("ii. With aura — Cu-IUD: 1, ..., CHC: 4*"), so the table becomes answerable
+            # instead of a headerless row the guard must refuse. Appended at the page's end,
+            # inside its char span, so each resolves to this page; additive, never replacing
+            # what was extracted, so a page with no clean table adds nothing. font_size 0 keeps
+            # them body text (heading_of needs font_size > body), and they add no chars, so the
+            # body-font measurement is untouched.
+            for extra in self_describing_lines(page.extract_words()):
+                extra = _normalise(extra)
+                lines.append(
+                    Line(
+                        text=extra,
+                        char_start=cursor,
+                        char_end=cursor + len(extra),
+                        page=index,
+                        font_size=0.0,
+                        is_bold=False,
+                    )
+                )
+                page_line_texts.append(extra)
+                cursor += len(extra) + len(LINE_SEPARATOR)
 
             # The trailing line separator is not part of the page; swap it for the page
             # separator so the two ledgers stay consistent with the assembled text.
