@@ -167,6 +167,15 @@ questions:
     language: English
     expect: answerable
     source: CDC US MEC 2024
+    note: >
+      Wrongly_declined, and the aggregate hid it until 2026-07-17. Diagnosed, two causes, both
+      structural, neither cheap. (1) The answer lives in the eligibility table (p14 "Postpartum
+      (nonbreastfeeding) a. <21 days postpartum — — 1 2*"), whose sparse category-digit text
+      matches this natural-language query poorly and which is #48-class anyway. (2) Retrieval's
+      top-10 is ~9 bibliography entries (#50) whose paper titles carry "combined hormonal
+      contraceptive" — they out-rank the guidance. Removing references does NOT fix it (the
+      table answer still does not surface); it is #48 first. Left as answerable on purpose: it
+      is an honest wrongly_declined that should stay visible until #48's structural fix lands.
 
   - id: contraception-iud-timing
     text: When can an intrauterine device be inserted?
