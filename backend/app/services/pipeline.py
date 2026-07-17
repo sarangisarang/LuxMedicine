@@ -42,6 +42,7 @@ from app.services.answering import Extractor, assemble, render_passages
 from app.services.audit import append_audit_entry, make_query
 from app.services.embedding import Embedder
 from app.services.retrieval import SearchHit, hybrid_search
+from app.services.table_guard import guard_table_rows
 from app.services.validation import RejectedCitation, validate_answer
 
 DEFAULT_LIMIT = 10
@@ -122,6 +123,12 @@ async def answer_query(
     # make the trail evidence of what we caught rather than of what we said.
     validated = validate_answer(answer.payload, {hit.chunk_id: hit.content for hit in hits})
 
+    # #48 safety net, after #19 and never inside it: a verbatim, correctly-cited quote can
+    # still be a category-table row shown without its column heading, which reads as the
+    # opposite of what it means. Drop those before the audit records what was shown. Not the
+    # fix (a structural table extractor is) — this makes #48 fail safe until it lands.
+    guarded = guard_table_rows(validated.payload)
+
     # make_query, not Query(...): the salt and the hash have to be produced together or
     # the row is silently un-erasable. See services/audit.py.
     query = make_query(
@@ -137,7 +144,7 @@ async def answer_query(
         retrieved_chunk_ids=[hit.chunk_id for hit in hits],
         prompt=prompt,
         model=answer.model,
-        response=validated.payload,
+        response=guarded.payload,
         error=error,
     )
     await session.commit()
@@ -145,7 +152,7 @@ async def answer_query(
     return AnsweredQuery(
         query_id=query.id,
         audit_seq=row.seq,
-        payload=validated.payload,
+        payload=guarded.payload,
         hits=hits,
         rejected=validated.rejected,
         invalid_sources=answer.invalid_sources,

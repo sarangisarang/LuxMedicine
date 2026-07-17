@@ -315,7 +315,7 @@ export interface components {
          * IssuingOrg
          * @enum {string}
          */
-        IssuingOrg: "ESC" | "AHA" | "ACC" | "WHO" | "NICE" | "NHLBI" | "ADA" | "EASD" | "ESMO" | "ASCO" | "IDSA" | "KDIGO" | "GINA";
+        IssuingOrg: "ESC" | "AHA" | "ACC" | "WHO" | "NICE" | "NHLBI" | "CDC" | "ADA" | "EASD" | "ESMO" | "ASCO" | "IDSA" | "KDIGO" | "GINA";
         /**
          * LegalBasis
          * @description Why an erasure was performed. An enum, and that is the security control.
@@ -345,7 +345,7 @@ export interface components {
          *     an absence of guidance would be the quietest lie this system could tell.
          * @enum {string}
          */
-        NoAnswerReason: "no_relevant_sources" | "sources_do_not_answer" | "verification_failed";
+        NoAnswerReason: "no_relevant_sources" | "sources_do_not_answer" | "verification_failed" | "table_not_citable";
         /** QueryRequest */
         QueryRequest: {
             /** Question */
@@ -478,7 +478,7 @@ export interface components {
          * VersionStatus
          * @enum {string}
          */
-        VersionStatus: "pending" | "active" | "archived";
+        VersionStatus: "pending" | "active" | "archived" | "withdrawn";
     };
     responses: never;
     parameters: never;

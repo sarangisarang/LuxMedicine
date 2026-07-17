@@ -139,10 +139,14 @@ questions:
     expect_pages: [69, 123]
     tags: [table-48]
     note: >
-      Expected to fail as answered_off_source until #48 is fixed, and that is the point: it
-      passed as a success before the check existed. Do not "fix" this by widening
-      expect_pages to include 102 — the barrier table does not answer this question, it only
-      looks like it does.
+      History in one line: it scored `answered` (a silent success) for four runs, then
+      `answered_off_source` once the expect_pages check existed, and now `table_not_citable`
+      once the guard (app/services/table_guard.py) refuses the headerless p102 row at runtime.
+      That last step is the safety win — a clinician is no longer shown category 1 from the
+      barrier table. It still counts as wrongly_declined against the answerable label, and it
+      should: the answer DOES exist (p69/p123), and only #48's structural fix will let the
+      system cite it. Do not widen expect_pages to 102 — the barrier table does not answer
+      this, it only looks like it does.
 
   - id: contraception-migraine-aura-de
     text: Welche Verhütungsmethoden sind bei Migräne mit Aura sicher?

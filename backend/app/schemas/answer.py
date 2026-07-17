@@ -65,6 +65,15 @@ class NoAnswerReason(StrEnum):
     # Quotes came back and #19 rejected them. This is our fault, not the corpus's.
     VERIFICATION_FAILED = "verification_failed"
 
+    # A quote was verbatim and correctly cited, but it is a category-table row shown without
+    # the column heading that gives its number meaning (#48). Kept apart from the three above
+    # because it is a different truth: the corpus DOES answer this, we simply cannot cite the
+    # table safely yet. Like VERIFICATION_FAILED it is our limitation, not the corpus's
+    # silence — and unlike SOURCES_DO_NOT_ANSWER it must point the clinician at the source
+    # page (#35), where the column headings are visible, rather than imply the guidance is
+    # absent. A safety net for #48 until the structural table extractor lands, not its fix.
+    TABLE_NOT_CITABLE = "table_not_citable"
+
 
 class Citation(BaseModel):
     """A verbatim span of a source, and exactly where it came from.

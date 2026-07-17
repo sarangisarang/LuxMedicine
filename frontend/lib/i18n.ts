@@ -36,6 +36,7 @@ type Strings = {
     no_relevant_sources: string;
     sources_do_not_answer: string;
     verification_failed: string;
+    table_not_citable: string;
     fallback: string;
   };
   rejected: (n: number) => string;
@@ -73,6 +74,11 @@ export const STRINGS: Record<UiLang, Strings> = {
         "Guidelines were found, but none of their passages answer this question.",
       verification_failed:
         "An answer was produced but could not be verified against its source, so it is being withheld. This is a system fault, not an absence of guidance.",
+      // #48: the guideline DOES answer this, in a table, but the answer is a category number
+      // whose column heading this system cannot yet quote alongside it — so the number would
+      // be shown without what it applies to. Point to the source, do not imply silence.
+      table_not_citable:
+        "The answer is in a table, and this system cannot yet quote it with the column headings that give its category numbers meaning. Rather than show a number without its heading, it is withheld — open the source page to read the table directly.",
       fallback: "No answer.",
     },
     rejected: (n) =>
@@ -115,6 +121,9 @@ export const STRINGS: Record<UiLang, Strings> = {
       // is the point — see the note at the top of this file.
       verification_failed:
         "Eine Antwort wurde erzeugt, konnte aber nicht gegen ihre Quelle geprüft werden und wird deshalb zurückgehalten. Dies ist ein Fehler des Systems, kein Fehlen einer Leitlinienaussage.",
+      // TODO(#48): clinician-facing medical German — have a native speaker review before deploy.
+      table_not_citable:
+        "Die Antwort steht in einer Tabelle, und dieses System kann sie noch nicht zusammen mit den Spaltenüberschriften zitieren, die den Kategoriezahlen ihre Bedeutung geben. Statt eine Zahl ohne ihre Überschrift anzuzeigen, wird sie zurückgehalten — öffnen Sie die Quellseite, um die Tabelle direkt zu lesen.",
       fallback: "Keine Antwort.",
     },
     rejected: (n) =>
@@ -159,6 +168,8 @@ export const STRINGS: Record<UiLang, Strings> = {
         "გაიდლაინები მოიძებნა, მაგრამ არცერთი მათი ნაწყვეტი არ პასუხობს ამ კითხვას.",
       verification_failed:
         "პასუხი შეიქმნა, მაგრამ ვერ გადამოწმდა თავის წყაროსთან, ამიტომ არ ჩვენდება. ეს სისტემის ხარვეზია, არა გაიდლაინის მითითების არარსებობა.",
+      table_not_citable:
+        "პასუხი ცხრილშია, და სისტემას ჯერ არ შეუძლია ის ციტირდეს იმ სვეტის სათაურებთან ერთად, რომლებიც კატეგორიის რიცხვებს აზრს ანიჭებენ. იმის ნაცვლად, რომ რიცხვი სათაურის გარეშე აჩვენოს, ის დაფარულია — გახსენით წყაროს გვერდი და წაიკითხეთ ცხრილი პირდაპირ.",
       fallback: "პასუხი არ არის.",
     },
     rejected: (n) => `${n} ციტატა უარყოფილია როგორც გადაუმოწმებელი და არ ჩვენდება.`,

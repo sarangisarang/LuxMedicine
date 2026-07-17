@@ -12,7 +12,7 @@
           "documents"
         ],
         "summary": "Ingest a guideline PDF",
-        "description": "Hash, deduplicate, store, register.\n\nOrder matters. The bytes are hashed and staged to a temp file before anything\ntouches the database, so a rejected upload leaves no row behind \u2014 and the file only\nenters the store once the row is safely committed, so the store never holds a PDF\nthat no version points at.",
+        "description": "Hash, deduplicate, store, register.\n\nOrder matters. The bytes are hashed and staged to a temp file before anything\ntouches the database, so a rejected upload leaves no row behind — and the file only\nenters the store once the row is safely committed, so the store never holds a PDF\nthat no version points at.",
         "operationId": "create_version_documents_versions_post",
         "requestBody": {
           "content": {
@@ -63,7 +63,7 @@
           "documents"
         ],
         "summary": "Stream a version's source PDF",
-        "description": "The original PDF a citation points at, so a clinician can verify us against the\nsource (#35). Verification a doctor will not actually perform is not verification, so\nthis exists to make it one click.\n\n**Tenancy is the same one row-level security enforces everywhere, not a second copy of\nit.** The file store is content-addressed by hash and has no notion of a clinic \u2014 two\nclinics that upload the same bytes share one physical file. So access is decided at the\n*row*, not the file: this reads the version under `get_tenant_session`, and RLS returns\nit only if its document is visible (a published guideline with clinic_id NULL, or this\nclinic's own upload). A version another clinic owns is filtered out and reads exactly\nlike one that does not exist \u2014 a 404 either way, so the endpoint never confirms that a\ndocument exists in a clinic the caller cannot see.\n\nThe client passes a `version_id`, never a path or hash, so there is nothing to traverse;\nthe path served is the one the row already holds. `FileResponse` streams from disk and\nhonours Range requests, so a 100MB guideline never lands in memory and a PDF viewer can\nfetch the pages it needs.",
+        "description": "The original PDF a citation points at, so a clinician can verify us against the\nsource (#35). Verification a doctor will not actually perform is not verification, so\nthis exists to make it one click.\n\n**Tenancy is the same one row-level security enforces everywhere, not a second copy of\nit.** The file store is content-addressed by hash and has no notion of a clinic — two\nclinics that upload the same bytes share one physical file. So access is decided at the\n*row*, not the file: this reads the version under `get_tenant_session`, and RLS returns\nit only if its document is visible (a published guideline with clinic_id NULL, or this\nclinic's own upload). A version another clinic owns is filtered out and reads exactly\nlike one that does not exist — a 404 either way, so the endpoint never confirms that a\ndocument exists in a clinic the caller cannot see.\n\nThe client passes a `version_id`, never a path or hash, so there is nothing to traverse;\nthe path served is the one the row already holds. `FileResponse` streams from disk and\nhonours Range requests, so a 100MB guideline never lands in memory and a PDF viewer can\nfetch the pages it needs.",
         "operationId": "get_version_pdf_documents__version_id__pdf_get",
         "security": [
           {
@@ -284,7 +284,7 @@
     "/audit/verify": {
       "get": {
         "summary": "Audit Verify",
-        "description": "Walk the caller's own chain end to end, and checkpoint it if intact.\n\n**The caller's clinic, from the token \u2014 there is no \"verify everything\" here.** Chains\nare per clinic (0011), so this is the endpoint a tenant uses to check their own trail,\nwhich is the only chain they can see and the only one they need. Verifying every\nclinic is an operator's job and lives in `cli/verify_chain.py`, where it belongs: it\nreads across tenants.\n\n**A break returns 500, not 200.** It used to return 200 with `{\"intact\": false}` in\nthe body, which is the sort of thing that reads fine and fails in production: every\ngeneric monitor \u2014 `curl -f`, an uptime check, a Kubernetes probe, a cron entry that\nchecks exit status \u2014 treats 200 as healthy. Scheduling that endpoint (#29) would have\nproduced a green dashboard over a rewritten trail. A check that reports its own\nfailure as success is worse than no check: it manufactures confidence.\n\n500 rather than a 4xx because a broken chain is not the caller's fault, and rather\nthan 503 because retrying will not help.",
+        "description": "Walk the caller's own chain end to end, and checkpoint it if intact.\n\n**The caller's clinic, from the token — there is no \"verify everything\" here.** Chains\nare per clinic (0011), so this is the endpoint a tenant uses to check their own trail,\nwhich is the only chain they can see and the only one they need. Verifying every\nclinic is an operator's job and lives in `cli/verify_chain.py`, where it belongs: it\nreads across tenants.\n\n**A break returns 500, not 200.** It used to return 200 with `{\"intact\": false}` in\nthe body, which is the sort of thing that reads fine and fails in production: every\ngeneric monitor — `curl -f`, an uptime check, a Kubernetes probe, a cron entry that\nchecks exit status — treats 200 as healthy. Scheduling that endpoint (#29) would have\nproduced a green dashboard over a rewritten trail. A check that reports its own\nfailure as success is worse than no check: it manufactures confidence.\n\n500 rather than a 4xx because a broken chain is not the caller's fault, and rather\nthan 503 because retrying will not help.",
         "operationId": "audit_verify_audit_verify_get",
         "responses": {
           "200": {
@@ -300,7 +300,7 @@
             }
           },
           "500": {
-            "description": "The chain is broken \u2014 the body says where and since when"
+            "description": "The chain is broken — the body says where and since when"
           }
         },
         "security": [
@@ -506,7 +506,7 @@
           "conflicting_group_ids"
         ],
         "title": "ConflictFinding",
-        "description": "Raised only when retrieval spans multiple issuing organisations and a comparison\npass finds them genuinely divergent.\n\nDivergence is reported, never resolved: we show both passages and let the clinician\njudge. Picking a winner would be the advice we are avoiding.\n\n**`description` is model prose and #19 does not validate it** \u2014 the same category of\nhole that removed `ExtractedStatement.text` above. It survives for now because it\nlabels a view in which both quotes are the content, rather than replacing them the\nway a statement headline did. That is a UI assumption living in a schema, which is\nfragile. Settle it at #24, before a prompt is written that fills it."
+        "description": "Raised only when retrieval spans multiple issuing organisations and a comparison\npass finds them genuinely divergent.\n\nDivergence is reported, never resolved: we show both passages and let the clinician\njudge. Picking a winner would be the advice we are avoiding.\n\n**`description` is model prose and #19 does not validate it** — the same category of\nhole that removed `ExtractedStatement.text` above. It survives for now because it\nlabels a view in which both quotes are the content, rather than replacing them the\nway a statement headline did. That is a UI assumption living in a schema, which is\nfragile. Settle it at #24, before a prompt is written that fills it."
       },
       "ErasureRequest": {
         "properties": {
@@ -572,6 +572,7 @@
           "WHO",
           "NICE",
           "NHLBI",
+          "CDC",
           "ADA",
           "EASD",
           "ESMO",
@@ -593,17 +594,18 @@
           "operator_request"
         ],
         "title": "LegalBasis",
-        "description": "Why an erasure was performed. An enum, and that is the security control.\n\nA free-text `reason` is where someone writes \"erased the question about the enalapril\ndose for the patient in bed 4\" \u2014 re-creating, in an append-only table, the thing that\nwas just destroyed. The issue calls this the recursion. The fix is not a warning in a\ncode review; it is that no field exists to hold prose."
+        "description": "Why an erasure was performed. An enum, and that is the security control.\n\nA free-text `reason` is where someone writes \"erased the question about the enalapril\ndose for the patient in bed 4\" — re-creating, in an append-only table, the thing that\nwas just destroyed. The issue calls this the recursion. The fix is not a warning in a\ncode review; it is that no field exists to hold prose."
       },
       "NoAnswerReason": {
         "type": "string",
         "enum": [
           "no_relevant_sources",
           "sources_do_not_answer",
-          "verification_failed"
+          "verification_failed",
+          "table_not_citable"
         ],
         "title": "NoAnswerReason",
-        "description": "Why nothing is being shown \u2014 a closed set, not prose.\n\nFree text here would be the same hole that removed `ExtractedStatement.text`: a\nmodel asked to explain itself in an empty answer will write \"no guidance found,\nthough enalapril is generally used\" \u2014 advice, smuggled through the one field that\nwas meant to say there is none.\n\nAn enum leaves nothing to write into. The wording a clinician reads lives in the UI,\nwhere a human chose it.\n\nThe three are kept apart because conflating them tells a clinician the wrong thing.\n\"The corpus has nothing on this\" is a fact about the guidelines. \"The answer could\nnot be verified\" is a fact about us malfunctioning \u2014 and reporting our own failure as\nan absence of guidance would be the quietest lie this system could tell."
+        "description": "Why nothing is being shown — a closed set, not prose.\n\nFree text here would be the same hole that removed `ExtractedStatement.text`: a\nmodel asked to explain itself in an empty answer will write \"no guidance found,\nthough enalapril is generally used\" — advice, smuggled through the one field that\nwas meant to say there is none.\n\nAn enum leaves nothing to write into. The wording a clinician reads lives in the UI,\nwhere a human chose it.\n\nThe three are kept apart because conflating them tells a clinician the wrong thing.\n\"The corpus has nothing on this\" is a fact about the guidelines. \"The answer could\nnot be verified\" is a fact about us malfunctioning — and reporting our own failure as\nan absence of guidance would be the quietest lie this system could tell."
       },
       "QueryRequest": {
         "properties": {
@@ -727,7 +729,7 @@
           "citations"
         ],
         "title": "SourceGroup",
-        "description": "What one issuing organisation's guideline says, in its own words.\n\nGrouped by organisation so a clinician sees *whose* guidance they are reading before\nthey read it \u2014 and so #23 can tell whether a result set spans more than one body."
+        "description": "What one issuing organisation's guideline says, in its own words.\n\nGrouped by organisation so a clinician sees *whose* guidance they are reading before\nthey read it — and so #23 can tell whether a result set spans more than one body."
       },
       "TranslateRequest": {
         "properties": {
@@ -878,7 +880,8 @@
         "enum": [
           "pending",
           "active",
-          "archived"
+          "archived",
+          "withdrawn"
         ],
         "title": "VersionStatus"
       }
