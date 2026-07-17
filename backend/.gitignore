@@ -1,0 +1,10 @@
+
+# Cached model replies (LLM_CACHE_DIR, local dev only). NEVER committed: the key is derived
+# from the question and the value is clinical text, so a cache in git history is a copy of
+# both that redact_query (#28) can never reach — the exact thing erasure exists to prevent.
+.cache/
+
+# Eval runs are results, and results are worth keeping — but they carry the questions asked.
+# The set in eval/questions.yaml is fictional and public; keep runs of it, and if a run ever
+# uses real clinical questions it does not belong in git.
+!eval/runs/

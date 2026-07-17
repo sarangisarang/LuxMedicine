@@ -1,0 +1,189 @@
+# The question set. Every entry carries what we expect BEFORE the run, because a number
+# you can interpret after the fact is a number you can talk yourself into.
+#
+# `expect` is the load-bearing field:
+#
+#   answerable  — the corpus contains a passage that answers this. A no-answer here is the
+#                 system being wrong (too conservative), and that is the failure worth
+#                 finding: it is invisible from the outside, because an honest "I don't
+#                 know" looks identical to a wrongly withheld answer.
+#   not_covered — the corpus genuinely does not cover this. A no-answer here is the system
+#                 being RIGHT, and an answer here is the dangerous case.
+#
+# Without `not_covered` entries the run measures only the happy path and cannot tell a
+# correct refusal from a wrong one — the whole rate collapses into one uninterpretable
+# percentage. That is the trap `luxmedicine-blockers` warns about: "do not run 500 questions
+# and call the number the model's hallucination rate".
+#
+# `source` records where we believe the answer is, so a wrong-document answer is visible as
+# a wrong-document answer rather than counted as a success.
+#
+# The corpus this is written against (2026-07-17):
+#   NHLBI EPR-3 2007  — asthma          719 chunks, 440pp
+#   KDIGO 2012        — CKD             579 chunks
+#   NICE NG106 2018   — heart failure    57 chunks
+
+questions:
+  # --- answerable: clean prose, verified by retrieval ---------------------------------
+
+  - id: asthma-beta-blockers
+    text: Should people with asthma avoid beta-blockers?
+    language: English
+    expect: answerable
+    source: NHLBI p204-205
+    note: >
+      Verified live. Also the #38 case: the guideline qualifies this with "although
+      cardioselective beta-blockers may be tolerated", and a quote that stops before the
+      qualifier still passes #19.
+
+  - id: asthma-beta-blockers-de
+    text: Sollten Menschen mit Asthma Betablocker vermeiden?
+    language: German
+    expect: answerable
+    source: NHLBI p204-205
+    note: The same question in German. e5 is multilingual; this is the cross-lingual check.
+
+  - id: asthma-cockroach
+    text: What can be done about cockroach exposure for patients with asthma?
+    language: English
+    expect: answerable
+    source: NHLBI p195
+
+  - id: asthma-satisfaction
+    text: What aspects of patient satisfaction should be monitored in asthma care?
+    language: English
+    expect: answerable
+    source: NHLBI p87
+
+  - id: ckd-podiatric
+    text: Do adults with chronic kidney disease and diabetes need regular foot or podiatric assessment?
+    language: English
+    expect: answerable
+    source: KDIGO p113
+
+  - id: ckd-podiatric-de
+    text: >
+      Brauchen Erwachsene mit chronischer Nierenerkrankung und Diabetes eine regelmäßige
+      podologische Untersuchung?
+    language: German
+    expect: answerable
+    source: KDIGO p113
+
+  - id: ckd-pth
+    text: How should an elevated parathyroid hormone level be evaluated in people with CKD?
+    language: English
+    expect: answerable
+    source: KDIGO p98
+
+  - id: hf-vaccination
+    text: What vaccinations should people with heart failure be offered?
+    language: English
+    expect: answerable
+    source: NICE p23
+
+  - id: hf-sodium
+    text: Should people with heart failure restrict their sodium or fluid intake?
+    language: English
+    expect: answerable
+    source: NICE p23
+    note: >
+      The answer is NEGATIVE — "do not routinely advise". A system that agrees with the
+      question's framing rather than reporting the guideline fails here, and it is the
+      failure a demo would never surface.
+
+  - id: hf-sodium-de
+    text: Sollten Menschen mit Herzinsuffizienz ihre Natriumzufuhr einschränken?
+    language: German
+    expect: answerable
+    source: NICE p23
+
+  # --- answerable, but the answer lives in a table or a threshold (#45) ---------------
+  #
+  # Separated deliberately. These are expected to be answerable and are the ones #45 makes
+  # unreliable: the chunk holds `Z90` for `≥90` and `o60` for `<60`, so either the model
+  # normalises and #19 rejects a correct quote, or it reproduces the corruption and a
+  # clinician is shown a threshold the guideline never wrote. Tagged so the run reports
+  # them apart — otherwise a known extraction bug is laundered into a "model rejection
+  # rate".
+
+  - id: ckd-gfr-categories
+    text: What are the GFR categories G1 to G5 used to classify chronic kidney disease?
+    language: English
+    expect: answerable
+    source: KDIGO p18
+    tags: [glyph-45, table]
+
+  - id: ckd-definition-threshold
+    text: What GFR threshold defines chronic kidney disease?
+    language: English
+    expect: answerable
+    source: KDIGO p18
+    tags: [glyph-45, threshold]
+
+  - id: asthma-severity-age
+    text: At what age is asthma severity classified differently in youths and adults?
+    language: English
+    expect: answerable
+    source: NHLBI p9
+    tags: [glyph-45, threshold]
+
+  # --- not covered: the corpus has no answer, and saying so is CORRECT ----------------
+  #
+  # Every one of these is a real clinical question about a condition this corpus does not
+  # contain. An answer here is not a success; it is the model reaching for something that
+  # is not in front of it.
+
+  - id: not-covered-sepsis
+    text: What is the recommended fluid resuscitation volume in septic shock?
+    language: English
+    expect: not_covered
+    note: No sepsis guideline in the corpus (asthma, CKD, heart failure only).
+
+  - id: not-covered-stroke
+    text: What is the time window for thrombolysis in acute ischaemic stroke?
+    language: English
+    expect: not_covered
+
+  - id: not-covered-diabetes-hba1c
+    text: What HbA1c target is recommended for most adults with type 2 diabetes?
+    language: English
+    expect: not_covered
+    note: >
+      Adjacent, not present. KDIGO mentions diabetes as a CKD cause throughout, so this is
+      the useful hard case: topically close, and the answer is genuinely not here.
+
+  - id: not-covered-pregnancy
+    text: Which antihypertensive is first line in pregnancy?
+    language: English
+    expect: not_covered
+
+  - id: not-covered-covid
+    text: When should antivirals be started in COVID-19?
+    language: English
+    expect: not_covered
+
+  # --- not a question at all ----------------------------------------------------------
+  #
+  # A clinician will type these. What the corpus does with them is worth knowing, and the
+  # honest answer to all three is a no-answer.
+
+  - id: junk-topic-only
+    text: heart failure
+    language: English
+    expect: not_covered
+    note: >
+      A topic, not a question — the system is extractive QA and has nothing to answer.
+      Observed live: it correctly declines, but the wording ("none of their passages answer
+      this question") reads as misleading when no question was asked. A UX finding, not a
+      retrieval one.
+
+  - id: junk-meta
+    text: What can you do?
+    language: English
+    expect: not_covered
+    note: A question about the assistant, not the guidelines. Observed live; declines correctly.
+
+  - id: junk-empty-ish
+    text: "?"
+    language: English
+    expect: not_covered

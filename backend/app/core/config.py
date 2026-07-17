@@ -1,8 +1,27 @@
 from functools import lru_cache
 from pathlib import Path
 
+from dotenv import load_dotenv
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# `.env` into the process environment, once, here.
+#
+# Settings reads `.env` for its own fields — but only its own. `google-genai` reads
+# GEMINI_API_KEY from `os.environ` directly, and `services/extractor_gemini.py` deliberately
+# never accepts the key as a constructor argument ("a key passed as a parameter is a key that
+# ends up in a traceback, a log line, or a fixture"). So a `.env` that pydantic has read is
+# still invisible to the SDK, and every entry point has to remember to populate the
+# environment itself.
+#
+# That cost the same bug twice in one day: `uvicorn app.main:app` booted and then died in
+# lifespan with "No API key was provided", and `python -m app.cli.evaluate` died the same way
+# at the same line. A rule every entry point must remember is a rule one of them will forget,
+# so it is done in the one module they all import instead.
+#
+# `override=False` is the default and is the point: a real environment variable, a container
+# `environment:` block, or a test's monkeypatch still wins over the file.
+load_dotenv()
 
 
 class Settings(BaseSettings):
