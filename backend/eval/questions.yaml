@@ -19,9 +19,19 @@
 # a wrong-document answer rather than counted as a success.
 #
 # The corpus this is written against (2026-07-17):
+#   CDC US MEC 2024   — contraception  1120 chunks, 129pp
 #   NHLBI EPR-3 2007  — asthma          719 chunks, 440pp
-#   KDIGO 2012        — CKD             579 chunks
-#   NICE NG106 2018   — heart failure    57 chunks
+#   KDIGO 2012        — CKD             579 chunks, 163pp
+#   CDC US SPR 2024   — contraception   316 chunks,  80pp
+#   NICE NG106 2018   — heart failure    57 chunks,  39pp
+#
+# **Growing the corpus can invalidate a `not_covered` label, and a stale label is worse than
+# no label** — it turns a correct answer into a scored failure, or hides a real one. When
+# documents are added, re-check every `not_covered` entry by looking for the ANSWER in the
+# chunks, not by looking at what retrieval returns: retrieval always returns its k nearest
+# neighbours, so "CDC came back" is not evidence that CDC answers anything. Re-checked after
+# the CDC ingest: all five still hold (no methyldopa/labetalol, no COVID antiviral, no HbA1c
+# target, no sepsis bundle, no thrombolysis window anywhere in the corpus).
 
 questions:
   # --- answerable: clean prose, verified by retrieval ---------------------------------
@@ -96,6 +106,43 @@ questions:
     language: German
     expect: answerable
     source: NICE p23
+
+  # --- contraception (CDC, public domain — the first licence-clean document) -----------
+
+  - id: contraception-migraine-aura
+    text: Which contraceptive methods are safe for women with migraine with aura?
+    language: English
+    expect: answerable
+    source: CDC US MEC 2024
+
+  - id: contraception-migraine-aura-de
+    text: Welche Verhütungsmethoden sind bei Migräne mit Aura sicher?
+    language: German
+    expect: answerable
+    source: CDC US MEC 2024
+
+  - id: contraception-postpartum
+    text: When can a woman start a combined hormonal contraceptive after giving birth?
+    language: English
+    expect: answerable
+    source: CDC US MEC 2024
+
+  - id: contraception-iud-timing
+    text: When can an intrauterine device be inserted?
+    language: English
+    expect: answerable
+    source: CDC US SPR 2024
+
+  # The cross-specialty case, and the reason the corpus is never filtered by the clinician's
+  # speciality. MEC 2024 added recommendations for chronic kidney disease, so the answer to a
+  # nephrology question lives in a contraception guideline. A speciality filter would hide
+  # exactly this — the answer that is hardest to find and most worth finding.
+  - id: contraception-in-ckd
+    text: Which contraceptive methods are appropriate for a woman with chronic kidney disease?
+    language: English
+    expect: answerable
+    source: CDC US MEC 2024
+    tags: [cross-specialty]
 
   # --- answerable, but the answer lives in a table or a threshold (#45) ---------------
   #

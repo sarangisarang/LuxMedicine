@@ -30,6 +30,7 @@ class IssuingOrg(StrEnum):
     WHO = "WHO"  # World Health Organization
     NICE = "NICE"  # UK National Institute for Health and Care Excellence
     NHLBI = "NHLBI"  # US National Heart, Lung, and Blood Institute (NIH)
+    CDC = "CDC"  # US Centers for Disease Control and Prevention
 
     # Specialty
     ADA = "ADA"  # American Diabetes Association
@@ -61,6 +62,7 @@ _REGIONS: dict[IssuingOrg, str] = {
     IssuingOrg.ASCO: "US",
     IssuingOrg.IDSA: "US",
     IssuingOrg.NHLBI: "US",
+    IssuingOrg.CDC: "US",
     IssuingOrg.NICE: "UK",
     IssuingOrg.WHO: "Global",
     IssuingOrg.KDIGO: "Global",
