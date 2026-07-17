@@ -109,17 +109,41 @@ questions:
 
   # --- contraception (CDC, public domain — the first licence-clean document) -----------
 
+  # #48 lives here, and it scored `answered` for four consecutive runs before anyone looked at
+  # WHICH page answered. The system quotes `ii. With aura 1` from p102 — verbatim, correctly
+  # cited to CDC, zero rejections. p102 is TABLE E1, BARRIER methods: condoms, spermicide,
+  # diaphragm. For those, 1 is right and beside the point. The answer a clinician needs is the
+  # combined-hormonal category 4 — the stroke contraindication — and it is on p69/p123, in a
+  # six-column summary row the model cannot quote verbatim without repairing it.
+  #
+  # So `expect_pages` is not bookkeeping here. It is the only field that separates the answer
+  # from the answer-shaped thing: both are verbatim, both cite CDC, and only the page differs.
   - id: contraception-migraine-aura
     text: Which contraceptive methods are safe for women with migraine with aura?
     language: English
     expect: answerable
     source: CDC US MEC 2024
+    expect_pages: [69, 123]
+    tags: [table-48]
+    note: >
+      Expected to fail as answered_off_source until #48 is fixed, and that is the point: it
+      passed as a success before the check existed. Do not "fix" this by widening
+      expect_pages to include 102 — the barrier table does not answer this question, it only
+      looks like it does.
 
   - id: contraception-migraine-aura-de
     text: Welche Verhütungsmethoden sind bei Migräne mit Aura sicher?
     language: German
     expect: answerable
     source: CDC US MEC 2024
+    expect_pages: [69, 123]
+    tags: [table-48]
+    note: >
+      verification_failed 3/3, and #48 explains it: the model reached for the p69/p123 row
+      that genuinely answers, then repaired the six-column table into a clean `With aura 4`
+      and #19 rejected it — correctly, since it had silently picked one column of six and
+      dropped the asterisk. This failing while the English one "succeeded" is the system being
+      SAFER in German. Not a translation bug; do not chase it as one.
 
   - id: contraception-postpartum
     text: When can a woman start a combined hormonal contraceptive after giving birth?

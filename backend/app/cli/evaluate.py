@@ -75,6 +75,20 @@ class Question:
     source: str | None = None
     note: str | None = None
     tags: list[str] = field(default_factory=list)
+    # Pages that genuinely answer this, when it matters WHICH page did (#48). Optional: most
+    # questions have prose answers that may legitimately appear in several places, and
+    # demanding a page there would score a right answer as wrong.
+    #
+    # It matters for a table. #48: asked which contraceptives are safe with migraine with
+    # aura, the system quoted `ii. With aura 1` from page 102 — verbatim, correctly cited,
+    # zero rejections, and scored `answered` in four consecutive runs. Page 102 is the
+    # BARRIER-METHOD table, where 1 is correct and irrelevant; the combined-hormonal answer is
+    # 4, on pages 69 and 123. Right document, right page number, wrong table, and every check
+    # this project has said yes. `source` is free text no one reads, so it caught nothing.
+    #
+    # This does not judge the quote. It judges where the quote came from, which is the one
+    # thing that distinguished a dangerous answer from a correct one here.
+    expect_pages: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -92,6 +106,7 @@ class Outcome:
     rejected: int
     diagnoses: list[dict]
     elapsed_s: float
+    expect_pages: list[int] = field(default_factory=list)
     error: str | None = None
 
     @property
@@ -99,12 +114,35 @@ class Outcome:
         return self.groups > 0
 
     @property
+    def answered_off_source(self) -> bool:
+        """Answered entirely from pages that do not hold the answer (#48).
+
+        Only meaningful where `expect_pages` is set — see Question.expect_pages.
+
+        Deliberately `any`, not `all`: one citation from a real page clears this, even
+        alongside citations from the wrong table. That is the conservative reading and it is
+        not the whole story — a right quote shown next to a misleading one is its own problem,
+        and this metric does not measure it. It answers one question only, the one that was
+        unasked for four runs: did anything the clinician was shown come from where the answer
+        actually is?
+        """
+        if not self.expect_pages or not self.answered:
+            return False
+        cited = {int(p) for p in self.pages if p.isdigit()}
+        return bool(cited) and not (cited & set(self.expect_pages))
+
+    @property
     def verdict(self) -> str:
         """The only classification that means anything: outcome against expectation."""
         if self.error:
             return "error"
         if self.expect == "answerable":
-            return "answered" if self.answered else "wrongly_declined"
+            if not self.answered:
+                return "wrongly_declined"
+            # Worse than declining, and it used to score identically to answering correctly:
+            # the clinician is shown a verbatim, correctly-attributed quote from a table that
+            # does not answer what they asked, and has nothing to tell them apart. See #48.
+            return "answered_off_source" if self.answered_off_source else "answered"
         return "correctly_declined" if not self.answered else "answered_uncovered"
 
 
@@ -176,7 +214,8 @@ async def run_one(session: AsyncSession, q: Question, embedder, extractor) -> Ou
         return Outcome(
             id=q.id, expect=q.expect, tags=q.tags, no_answer_reason=None, groups=0,
             citations=0, orgs=[], pages=[], rejected=0, diagnoses=[],
-            elapsed_s=time.monotonic() - started, error=f"{type(exc).__name__}: {exc}",
+            elapsed_s=time.monotonic() - started, expect_pages=q.expect_pages,
+            error=f"{type(exc).__name__}: {exc}",
         )
 
     payload = answered.payload
@@ -185,6 +224,7 @@ async def run_one(session: AsyncSession, q: Question, embedder, extractor) -> Ou
         id=q.id,
         expect=q.expect,
         tags=q.tags,
+        expect_pages=q.expect_pages,
         no_answer_reason=payload.no_answer_reason.value if payload.no_answer_reason else None,
         groups=len(groups),
         citations=sum(len(g.citations) for g in groups),
@@ -223,7 +263,15 @@ def report(outcomes: list[Outcome]) -> dict:
         "counts": {k: len(v) for k, v in sorted(buckets.items())},
         "by_id": buckets,
         "answerable": {
+            # `answered` counts groups>0 and nothing else, which is what let #48 sit inside
+            # 15/18 for four runs. Read it next to answered_off_source, never alone.
             "answered": rate(answerable, lambda o: o.answered),
+            # The #48 number. Not folded into `answered` as a subtraction, because these are
+            # not near-misses: a verbatim quote from the wrong table is the most convincing
+            # wrong answer this system can produce, and it deserves its own line.
+            "answered_off_source": rate(
+                [o for o in answerable if o.expect_pages], lambda o: o.answered_off_source
+            ),
             "clean_prose_answered": rate(clean, lambda o: o.answered),
             # Kept apart on purpose: #45 corrupts the characters in tables and thresholds,
             # so folding these in would launder a known extraction bug into a model score.
@@ -273,7 +321,12 @@ async def main_async(args: argparse.Namespace) -> int:
             async with maker() as session:
                 o = await run_one(session, q, embedder, extractor)
             outcomes.append(o)
-            flag = "!!" if o.verdict in {"wrongly_declined", "answered_uncovered", "error"} else "  "
+            flag = (
+                "!!"
+                if o.verdict
+                in {"wrongly_declined", "answered_uncovered", "answered_off_source", "error"}
+                else "  "
+            )
             print(
                 f"{flag} [{i:>3}/{len(questions)}] {o.id:<28} {o.verdict:<19} "
                 f"cites={o.citations} rej={o.rejected} {o.elapsed_s}s"
