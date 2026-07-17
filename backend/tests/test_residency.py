@@ -183,6 +183,11 @@ def test_a_deployment_cannot_extract_through_a_non_eu_endpoint(monkeypatch):
     # gate, both correct — this one just has to get past the other to test itself.
     monkeypatch.setenv("OIDC_ISSUER", "https://idp.example.invalid/realms/x")
     monkeypatch.setenv("OIDC_AUDIENCE", "luxmedicine-api")
+    # A third guard on the same switch: a deployed environment must not carry a model cache
+    # either (its key is derived from the question, which redact_query could not reach). A
+    # developer's .env sets one, so it is switched off here the same way the issuer is
+    # switched on — this test has to get past every guard on the gate to test its own.
+    monkeypatch.setenv("LLM_CACHE_DIR", "")
     get_settings.cache_clear()
     try:
         extractor = GeminiExtractor()  # Developer API: global endpoint

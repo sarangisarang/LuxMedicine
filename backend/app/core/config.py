@@ -1,7 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -30,6 +30,26 @@ class Settings(BaseSettings):
     # 100 MB. Clinical guidelines run to hundreds of pages, so the limit is generous —
     # it exists to stop an upload sized to exhaust the disk, not to police page count.
     max_upload_bytes: int = 100 * 1024 * 1024
+
+    # Memoises the model call while developing, so asking the same thing twice costs one
+    # request (the free tier is 20/day per model). Unset means no cache, which is the only
+    # correct setting outside local — see `_the_llm_cache_is_local_only` and
+    # `services/llm_cache.py`.
+    llm_cache_dir: Path | None = None
+
+    @field_validator("llm_cache_dir", mode="before")
+    @classmethod
+    def _blank_means_no_cache(cls, value: object) -> object:
+        """`LLM_CACHE_DIR=` means no cache, not a cache in the working directory.
+
+        Without this, an empty value becomes `Path("")` — which is `Path(".")`, a real
+        directory — so unsetting the variable would silently scatter cached model replies
+        through the repository root. It is also how a caller switches the cache off over a
+        `.env` that sets it, which is what a test flipping to a deployed environment needs.
+        """
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     # --- identity (#30) ---
     #
@@ -63,6 +83,30 @@ class Settings(BaseSettings):
             raise ValueError(
                 f"environment={self.environment!r} requires OIDC_ISSUER and OIDC_AUDIENCE: "
                 "actor_id must come from a verified identity, and there is no bypass"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _the_llm_cache_is_local_only(self) -> "Settings":
+        """Refuse to boot with a model cache outside local development.
+
+        Two reasons, and the second is the one that matters. It would falsify the
+        measurement: the model is not deterministic even at temperature 0, so a cache freezes
+        whichever reply came first — useful while iterating, ruinous while measuring
+        rejection_rate. And it would break erasure: the cache key is derived from the
+        question, and #28 exists to make a question unrecoverable. `redact_query` destroys
+        the text and the salt; it cannot reach a file on disk whose name is an unsalted hash
+        of the same question.
+
+        A flag would be the wrong shape here for the same reason `core/auth.py` has no
+        AUTH_DISABLED: it would ship, and the failure would be silent because everything
+        would appear to work.
+        """
+        if self.llm_cache_dir is not None and self.environment != "local":
+            raise ValueError(
+                f"environment={self.environment!r} must not set LLM_CACHE_DIR: a cache keyed "
+                "on the question survives redact_query (#28), and a frozen model reply "
+                "falsifies rejection_rate. It is a local development convenience only."
             )
         return self
 

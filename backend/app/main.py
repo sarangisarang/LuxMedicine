@@ -30,8 +30,19 @@ async def lifespan(app: FastAPI):
     from app.services.translation import GeminiTranslator
 
     embedder = E5Embedder()
-    extractor = GeminiExtractor()
-    translator = GeminiTranslator()
+    extractor: object = GeminiExtractor()
+    translator: object = GeminiTranslator()
+
+    # Local only, and Settings refuses to boot if that is violated — the cache is keyed on
+    # the question, which erasure could not reach, and it freezes a model that is not
+    # deterministic. See services/llm_cache.py.
+    if settings.llm_cache_dir is not None:
+        from app.services.llm_cache import CachingExtractor, CachingTranslator, DiskCache
+
+        cache = DiskCache(root=settings.llm_cache_dir)
+        extractor = CachingExtractor(extractor, cache, model=extractor.model)  # type: ignore[attr-defined]
+        translator = CachingTranslator(translator, cache, model=translator.model)  # type: ignore[attr-defined]
+
     app.dependency_overrides[queries.get_embedder] = lambda: embedder
     app.dependency_overrides[queries.get_extractor] = lambda: extractor
     app.dependency_overrides[translation.get_translator] = lambda: translator
