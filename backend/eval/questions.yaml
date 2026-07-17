@@ -233,6 +233,34 @@ questions:
     language: English
     expect: not_covered
 
+  # The hardest not_covered case in the set, and the most dangerous. Found live 2026-07-17.
+  #
+  # These are eligibility guidelines: they answer "what may a woman with condition X use",
+  # never "how does X arise". The corpus has no pathogenesis for cervical disease — colposcopy
+  # 0 chunks, carcinogenesis 0, HPV 1 — so the honest answer is a decline.
+  #
+  # Observed: ANSWERED, from CDC p81, verbatim, correctly cited, 0 rejections —
+  #
+  #   "Among women with persistent human papillomavirus infection, long-term COC use
+  #    (>=5 years) might increase the risk for carcinoma in situ and invasive carcinoma"
+  #
+  # That is a real MEC clarification about a contraceptive RISK FACTOR in women who already
+  # have persistent HPV. Offered as the answer to "how does dysplasia develop?", it reads as
+  # a causal claim the guideline never makes — that dysplasia arises from long-term COC use.
+  #
+  # Worse than junk-topic-only in exactly the way that matters: "heart failure" returns
+  # something a clinician instantly sees is not an answer. This returns something that looks
+  # like one. See #47 — the axis is real, and this is its dangerous end.
+  - id: not-covered-dysplasia-pathogenesis
+    text: How does cervical dysplasia develop?
+    language: English
+    expect: not_covered
+    tags: [adjacent-vocabulary]
+    note: >
+      Do not "fix" this by adding a pathogenesis document unless the licence is verified —
+      the point of the question is that the corpus must decline what it does not hold, and
+      it currently does not.
+
   # --- not a question at all ----------------------------------------------------------
   #
   # A clinician will type these. What the corpus does with them is worth knowing, and the
