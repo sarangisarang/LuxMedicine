@@ -21,8 +21,10 @@ from pathlib import Path
 from sqlalchemy import func, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.models.chunk import Chunk
 from app.models.document import DocumentVersion, VersionStatus
+from app.services import storage
 from app.services.chunking import chunk_document
 from app.services.embedding import Embedder
 from app.services.extraction import UNRESOLVED_GLYPH, extract_pdf
@@ -82,7 +84,9 @@ async def index_version(
     if version.status is not VersionStatus.PENDING:
         raise VersionNotPendingError(version_id, version.status)
 
-    document = extract_pdf(Path(version.storage_uri))
+    # Resolved against the configured root, not taken as an absolute path: the same row has
+    # to find its bytes whether this runs on the host or in a container.
+    document = extract_pdf(storage.resolve(version.storage_uri, root=get_settings().storage_root))
     chunks = chunk_document(document)
 
     if not chunks:

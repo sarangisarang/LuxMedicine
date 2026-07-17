@@ -85,7 +85,9 @@ async def create_version(
                 issuing_org=issuing_org,
                 version_label=version_label,
                 file_hash=staged.file_hash,
-                storage_uri=str(final_path),
+                # Relative to the storage root, never absolute: the row must mean the same
+                # thing to the API on this host and to the API in a container.
+                storage_uri=storage.relative_uri(final_path, root=settings.storage_root),
                 guideline_type=guideline_type,
                 published_at=published_at,
             ),
@@ -182,7 +184,7 @@ async def get_version_pdf(
     if version is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no such document version")
 
-    path = Path(version.storage_uri)
+    path = storage.resolve(version.storage_uri, root=settings.storage_root)
     if not path.is_file():
         # The row is visible but its bytes are gone from the store. That is our fault, not
         # a missing document — and reporting it as a 404 would send a clinician looking for

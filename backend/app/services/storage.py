@@ -89,6 +89,43 @@ def path_for(file_hash: str, *, root: Path) -> Path:
     return root / file_hash[:2] / f"{file_hash}.pdf"
 
 
+def relative_uri(path: Path, *, root: Path) -> str:
+    """What goes in `document_versions.storage_uri`: the location *relative to the root*.
+
+    An absolute path is not a location, it is a location on one machine. Storing one made
+    the database non-portable in a way nothing noticed until the API ran in a container:
+    every row said `C:\\Users\\...\\storage\\x.pdf`, the container mounts the same bytes at
+    `/app/storage/x.pdf`, and every source PDF 500'd. The row is the same row; only the
+    machine reading it changed, and that must not matter.
+
+    Forward slashes always, so a URI written on Windows resolves on Linux.
+    """
+    return path.relative_to(root).as_posix()
+
+
+def resolve(storage_uri: str, *, root: Path) -> Path:
+    """Where a version's bytes actually are, for whoever is asking now.
+
+    Tolerates a legacy absolute URI (rows written before `relative_uri` existed): if it
+    names a file that exists, use it; otherwise fall back to the path under the current
+    root, which is what a container or a second machine needs. Migration 0013 rewrites the
+    stored values, so this fallback is for a database that has not been migrated yet —
+    not a licence to keep writing absolute paths.
+    """
+    candidate = Path(storage_uri)
+    if candidate.is_absolute():
+        if candidate.is_file():
+            return candidate
+        # Written on another machine. Everything after the root's name is still the layout.
+        parts = candidate.as_posix().replace("\\", "/").split("/")
+        if root.name in parts:
+            tail = parts[parts.index(root.name) + 1 :]
+            if tail:
+                return root.joinpath(*tail)
+        return root / candidate.name
+    return root / candidate
+
+
 def commit_staged(staged: StagedUpload, *, root: Path) -> Path:
     """Move the staged file into the store and return its final path.
 

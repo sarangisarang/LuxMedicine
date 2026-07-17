@@ -109,7 +109,18 @@ async def test_the_pdf_is_stored_at_its_content_address(client, session):
         )
     ).scalar_one()
 
-    stored = Path(version.storage_uri)
+    # storage_uri is relative to the root (0014), so it is resolved rather than opened
+    # directly — that is the whole point of the change: the row means the same thing to a
+    # reader on this host and to one in a container, which an absolute path did not.
+    from app.core.config import get_settings
+    from app.services import storage
+
+    assert not Path(version.storage_uri).is_absolute(), (
+        "an absolute storage_uri is a path on one machine; it 500'd every source PDF once "
+        "the API ran in a container"
+    )
+
+    stored = storage.resolve(version.storage_uri, root=get_settings().storage_root)
     assert stored.exists(), "hashing the bytes and discarding them would prove nothing later"
     assert stored.read_bytes() == body, "the stored file must be the bytes we hashed"
     assert version.file_hash in stored.name
