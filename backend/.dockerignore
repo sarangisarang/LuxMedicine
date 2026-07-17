@@ -1,0 +1,17 @@
+# Secrets never get baked into an image — the key is passed at runtime via env_file.
+.env
+.env.*
+!.env.example
+
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# The corpus is a mounted volume, not image content: PDFs are data, and an image that
+# carries them is an image that leaks whatever was ingested when it was built.
+storage/
+
+tests/
+scripts/

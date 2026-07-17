@@ -3,17 +3,40 @@
 Clinical Search & Retrieval Engine. Returns source-attributed extracts from clinical
 guidelines. **It does not diagnose, recommend, or advise** — see *Positioning* below.
 
-## Setup
+## Run the whole stack
 
 ```bash
 git config core.hooksPath .githooks   # once per clone — blocks committing secrets
-cp .env.example .env                  # real values go here; .env is gitignored
-docker compose up -d                  # Postgres 17 + pgvector on :5433
+cp .env.example .env                  # real values go here (GEMINI_API_KEY); .env is gitignored
+docker compose up -d                  # db :5433, keycloak :8081, api :8000, web :3000
+```
+
+Open <http://localhost:3000>. The api migrates on start; the first `up` also downloads
+multilingual-e5-large (~2.2GB) into the `hf-cache` volume, so it takes a few minutes once and
+seconds thereafter.
+
+The compose file lives here rather than at the repo root because compose names volumes after
+the project directory — moving it would create a new, empty `luxmedicine-pgdata` and the
+ingested corpus would be gone.
+
+## Develop against it natively
+
+```bash
 python -m venv .venv
 ./.venv/Scripts/python.exe -m pip install -e ".[dev]"
 ./.venv/Scripts/python.exe -m alembic upgrade head
-./.venv/Scripts/python.exe -m uvicorn app.main:app --reload
+./.venv/Scripts/python.exe -m uvicorn app.main:app --reload --env-file .env
 ```
+
+`--env-file` is not optional if you want to ask a question: google-genai reads
+`GEMINI_API_KEY` from `os.environ`, which pydantic `Settings` does not populate.
+
+**One wrinkle worth knowing.** Keycloak derives a token's `iss` from the URL it was reached
+at, so each context is self-consistent — `keycloak:8081` inside compose, `localhost:8081` on
+the host — and the two do not mix: a token minted by `scripts/dev_token.py` on the host is
+rejected by the *containerised* api, whose OIDC_ISSUER is the compose-internal URL. The issuer
+check is exact on purpose (see `app/core/auth.py`). Inside compose the web app fetches its own
+token, so nothing needs the host script.
 
 `alembic upgrade head --sql` prints the DDL without touching a database — useful for
 review, and it is how the schema was verified before the container existed.

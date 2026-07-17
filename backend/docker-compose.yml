@@ -1,3 +1,10 @@
+# The whole stack: database, identity, API, UI. `docker compose up -d` and open :3000.
+#
+# This file stays in backend/ rather than moving to the repo root on purpose. Compose derives
+# the project name from this directory, and the project name is what namespaces the volumes —
+# moving it would silently create a NEW luxmedicine-pgdata and the ingested corpus would be
+# gone. The frontend is built from ../frontend, which compose is happy to do.
+
 services:
   db:
     image: pgvector/pgvector:pg17
@@ -39,5 +46,59 @@ services:
     volumes:
       - ./keycloak/realm-luxmedicine.json:/opt/keycloak/data/import/realm-luxmedicine.json:ro
 
+  api:
+    build: .
+    container_name: luxmedicine-api
+    # The key lives here and nowhere in the image (see .dockerignore).
+    env_file:
+      - .env
+    environment:
+      # These override whatever .env says, because .env is written for running on the host:
+      # inside the network the database is `db:5432`, not `localhost:5433`.
+      DATABASE_URL: postgresql+asyncpg://luxmed:luxmed@db:5432/luxmedicine
+      # Keycloak derives a token's `iss` from the URL it was reached at, so each context is
+      # self-consistent: in here the issuer is keycloak:8081, on the host it is
+      # localhost:8081. The consequence worth knowing: a token minted on the host by
+      # scripts/dev_token.py carries iss=localhost:8081 and THIS api will reject it (the
+      # issuer check is exact, and deliberately so). Inside compose the frontend gets its
+      # own token over the network below, so nothing needs the host script.
+      OIDC_ISSUER: http://keycloak:8081/realms/luxmedicine
+      OIDC_AUDIENCE: luxmedicine-api
+      ENVIRONMENT: local
+    volumes:
+      # The corpus. A bind mount, not a volume: these PDFs are the ones already ingested on
+      # the host, and document_versions.storage_uri points at them by path.
+      - ./storage:/app/storage
+      # multilingual-e5-large is ~2.2GB and is NOT in the image. First `up` downloads it into
+      # this volume (slow, once); every later start reuses it. To skip the download, mount the
+      # host's cache instead: ${USERPROFILE}/.cache/huggingface:/root/.cache/huggingface
+      - hf-cache:/root/.cache/huggingface
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      keycloak:
+        # started, not healthy: JWKS is fetched lazily on the first request, so the API does
+        # not need the issuer to be up before it can boot.
+        condition: service_started
+
+  web:
+    build: ../frontend
+    container_name: luxmedicine-web
+    environment:
+      # Server-side only. The browser talks to this app; this app talks to the API — which
+      # is why no CORS is opened anywhere and the token never reaches the browser.
+      NEXT_PUBLIC_API_URL: http://api:8000
+      KEYCLOAK_TOKEN_URL: http://keycloak:8081/realms/luxmedicine/protocol/openid-connect/token
+      DEV_CLIENT_ID: luxmedicine-api
+      DEV_USERNAME: dr.smith
+      DEV_PASSWORD: dev-password
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
 volumes:
   luxmedicine-pgdata:
+  hf-cache:

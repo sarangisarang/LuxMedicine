@@ -1,0 +1,7 @@
+node_modules/
+.next/
+.env
+.env.*
+!.env.example
+# Synced from node_modules at build time by scripts/sync-pdf-worker.mjs.
+public/pdf.worker.min.mjs
