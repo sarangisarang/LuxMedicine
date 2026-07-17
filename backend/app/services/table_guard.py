@@ -89,6 +89,12 @@ def looks_like_headerless_table_row(quote: str) -> bool:
         if label_tokens and label_tokens[-1].lower() in _SELF_LABELLING:
             # "Step 2", "Grade 3" — the number names its own scale, no heading needed.
             continue
+        if label_tokens and label_tokens[-1].endswith(":"):
+            # "CHC: 4" — a key:value pair names its own column, so the number is not
+            # headerless. This is exactly the self-describing form services/table_extraction.py
+            # emits from a mapped table row (#48): the fix's output must pass the guard, or the
+            # guard would refuse the very rows the extractor made safe to show.
+            continue
         return True
     return False
 
