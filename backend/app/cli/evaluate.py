@@ -143,6 +143,13 @@ class Outcome:
             # the clinician is shown a verbatim, correctly-attributed quote from a table that
             # does not answer what they asked, and has nothing to tell them apart. See #48.
             return "answered_off_source" if self.answered_off_source else "answered"
+        if self.expect == "withdrawn_source":
+            # Answerable only from a document withdrawn for licence (#49). A decline is the
+            # firewall holding. An answer means the system found the topic elsewhere in the
+            # licensed corpus — which for a CKD or heart-failure question it does not contain,
+            # so it is the answered_uncovered danger by another name. Kept in its own verdict
+            # so it never pads correctly_declined, and so the shrink is visible, not laundered.
+            return "withdrawn_declined" if not self.answered else "withdrawn_leaked"
         return "correctly_declined" if not self.answered else "answered_uncovered"
 
 
@@ -244,6 +251,7 @@ def report(outcomes: list[Outcome]) -> dict:
 
     answerable = [o for o in outcomes if o.expect == "answerable" and not o.error]
     uncovered = [o for o in outcomes if o.expect == "not_covered" and not o.error]
+    withdrawn = [o for o in outcomes if o.expect == "withdrawn_source" and not o.error]
     glyph = [o for o in answerable if "glyph-45" in o.tags]
     clean = [o for o in answerable if "glyph-45" not in o.tags]
 
@@ -279,6 +287,15 @@ def report(outcomes: list[Outcome]) -> dict:
         },
         "not_covered": {
             "correctly_declined": rate(uncovered, lambda o: not o.answered),
+        },
+        # #49: answerable only from KDIGO/NICE, both withdrawn for licence. Its own bucket so
+        # the shrink is stated, not laundered into correctly_declined. `declined` = the
+        # firewall holds; `leaked` names the count that answered anyway — the dangerous case,
+        # a CKD/heart-failure answer conjured from a corpus that no longer contains one.
+        "withdrawn_source": {
+            "count": len(withdrawn),
+            "correctly_declined": rate(withdrawn, lambda o: not o.answered),
+            "leaked": sum(1 for o in withdrawn if o.answered),
         },
         "rejected_quotes": {
             "total": sum(o.rejected for o in outcomes),
@@ -324,7 +341,13 @@ async def main_async(args: argparse.Namespace) -> int:
             flag = (
                 "!!"
                 if o.verdict
-                in {"wrongly_declined", "answered_uncovered", "answered_off_source", "error"}
+                in {
+                    "wrongly_declined",
+                    "answered_uncovered",
+                    "answered_off_source",
+                    "withdrawn_leaked",
+                    "error",
+                }
                 else "  "
             )
             print(

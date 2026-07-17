@@ -105,6 +105,39 @@ class TestAnsweredOffSource:
         assert o.verdict == "error"
 
 
+class TestWithdrawnSource:
+    """#49. Answerable only from a withdrawn document; a decline is the firewall holding."""
+
+    def test_declining_a_withdrawn_source_question_is_the_firewall_working(self):
+        o = make(expect="withdrawn_source", groups=0, pages=[])
+        assert o.verdict == "withdrawn_declined"
+
+    def test_answering_it_is_the_dangerous_leak(self):
+        """The corpus no longer contains a CKD answer, so an answer is conjured from
+        elsewhere — the answered_uncovered danger under a name that flags the cause."""
+        o = make(expect="withdrawn_source", groups=1, pages=["21"])
+        assert o.verdict == "withdrawn_leaked"
+
+    def test_it_never_pads_correctly_declined(self):
+        """The whole reason for a separate bucket: a withdrawn decline must not inflate the
+        genuinely-never-covered number, or 6/8 stops being comparable to its own history."""
+        r = report(
+            [
+                make(expect="not_covered", groups=0, pages=[]),  # correctly_declined 1/1
+                make(expect="withdrawn_source", groups=0, pages=[]),  # must NOT touch it
+            ]
+        )
+        assert r["not_covered"]["correctly_declined"] == "1/1"
+        assert r["withdrawn_source"]["correctly_declined"] == "1/1"
+        assert r["withdrawn_source"]["count"] == 1
+        assert r["withdrawn_source"]["leaked"] == 0
+
+    def test_a_leak_is_counted(self):
+        r = report([make(expect="withdrawn_source", groups=1, pages=["21"])])
+        assert r["withdrawn_source"]["leaked"] == 1
+        assert r["withdrawn_source"]["correctly_declined"] == "0/1"
+
+
 class TestReport:
     """The four numbers must stay four. A metric that folds is a metric that hides."""
 
@@ -149,8 +182,21 @@ class TestQuestionsYaml:
         assert len(questions) >= 26
 
     def test_every_expect_is_a_known_label(self, questions):
-        """A typo here would silently drop a question out of both buckets."""
-        assert {q.expect for q in questions} <= {"answerable", "not_covered"}
+        """A typo here would silently drop a question out of every bucket."""
+        assert {q.expect for q in questions} <= {
+            "answerable",
+            "not_covered",
+            "withdrawn_source",
+        }
+
+    def test_withdrawn_questions_name_their_lost_source(self, questions):
+        """#49: the KDIGO/NICE questions moved to withdrawn_source. The source string must say
+        so, or a later reader restores them to answerable and the firewall test evaporates."""
+        withdrawn = [q for q in questions if q.expect == "withdrawn_source"]
+        assert len(withdrawn) >= 8, "expected the 8 KDIGO/NICE questions"
+        for q in withdrawn:
+            assert "withdrawn" in (q.source or "").lower(), q.id
+            assert any(k in (q.source or "") for k in ("KDIGO", "NICE")), q.id
 
     def test_the_48_questions_expect_the_pages_that_answer(self, questions):
         """p102 is the barrier table. If someone ever "fixes" #48 by widening this to include
@@ -162,6 +208,9 @@ class TestQuestionsYaml:
 
     def test_both_buckets_are_populated(self, questions):
         """The whole point of the design: without not_covered there is no way to tell a
-        correct refusal from a wrong one."""
-        assert sum(q.expect == "answerable" for q in questions) >= 15
+        correct refusal from a wrong one. The answerable floor dropped from 15 to 10 when #49
+        withdrew KDIGO/NICE — the shrink is real and recorded, not a regression to fix by
+        re-labelling questions back."""
+        assert sum(q.expect == "answerable" for q in questions) >= 9
         assert sum(q.expect == "not_covered" for q in questions) >= 5
+        assert sum(q.expect == "withdrawn_source" for q in questions) >= 8

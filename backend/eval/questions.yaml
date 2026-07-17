@@ -65,47 +65,60 @@ questions:
     expect: answerable
     source: NHLBI p87
 
+  # --- withdrawn source: answerable ONLY from a document we may not index (#49) -----------
+  #
+  # These were `answerable` and verified live against KDIGO/NICE. #49 established that both
+  # licences forbid an information storage and retrieval system, so both were withdrawn from
+  # the index (app/cli/withdraw.py). The answer no longer exists in the shippable corpus.
+  #
+  # They are NOT folded into `not_covered`: that would pad `correctly_declined` and make the
+  # genuinely-never-covered 6/8 incomparable to its own history. They are their own bucket,
+  # measuring one thing — does the withdrawal firewall hold? The correct outcome is a decline.
+  # An ANSWER here is the dangerous case: the system reaching into CDC/NHLBI for a CKD or
+  # heart-failure answer that its licensed corpus does not contain (answered_uncovered).
+
   - id: ckd-podiatric
     text: Do adults with chronic kidney disease and diabetes need regular foot or podiatric assessment?
     language: English
-    expect: answerable
-    source: KDIGO p113
+    expect: withdrawn_source
+    source: KDIGO p113 (withdrawn #49)
 
   - id: ckd-podiatric-de
     text: >
       Brauchen Erwachsene mit chronischer Nierenerkrankung und Diabetes eine regelmäßige
       podologische Untersuchung?
     language: German
-    expect: answerable
-    source: KDIGO p113
+    expect: withdrawn_source
+    source: KDIGO p113 (withdrawn #49)
 
   - id: ckd-pth
     text: How should an elevated parathyroid hormone level be evaluated in people with CKD?
     language: English
-    expect: answerable
-    source: KDIGO p98
+    expect: withdrawn_source
+    source: KDIGO p98 (withdrawn #49)
 
   - id: hf-vaccination
     text: What vaccinations should people with heart failure be offered?
     language: English
-    expect: answerable
-    source: NICE p23
+    expect: withdrawn_source
+    source: NICE p23 (withdrawn #49)
 
   - id: hf-sodium
     text: Should people with heart failure restrict their sodium or fluid intake?
     language: English
-    expect: answerable
-    source: NICE p23
+    expect: withdrawn_source
+    source: NICE p23 (withdrawn #49)
     note: >
-      The answer is NEGATIVE — "do not routinely advise". A system that agrees with the
-      question's framing rather than reporting the guideline fails here, and it is the
-      failure a demo would never surface.
+      The answer is NEGATIVE — "do not routinely advise" — and NICE, its only source, is
+      withdrawn (#49). A decline is now correct. If the system instead agrees with the
+      question's framing from some other document, that is the answered_uncovered failure a
+      demo would never surface, now doubly so.
 
   - id: hf-sodium-de
     text: Sollten Menschen mit Herzinsuffizienz ihre Natriumzufuhr einschränken?
     language: German
-    expect: answerable
-    source: NICE p23
+    expect: withdrawn_source
+    source: NICE p23 (withdrawn #49)
 
   # --- contraception (CDC, public domain — the first licence-clean document) -----------
 
@@ -168,27 +181,30 @@ questions:
     source: CDC US MEC 2024
     tags: [cross-specialty]
 
-  # --- answerable, but the answer lives in a table or a threshold (#45) ---------------
+  # --- #45 glyph corruption, where the answer lives in a table or threshold ------------
   #
-  # Separated deliberately. These are expected to be answerable and are the ones #45 makes
-  # unreliable: the chunk holds `Z90` for `≥90` and `o60` for `<60`, so either the model
-  # normalises and #19 rejects a correct quote, or it reproduces the corruption and a
-  # clinician is shown a threshold the guideline never wrote. Tagged so the run reports
-  # them apart — otherwise a known extraction bug is laundered into a "model rejection
-  # rate".
+  # #45: the chunk holds `Z90` for `≥90` and `o60` for `<60`, so either the model normalises
+  # and #19 rejects a correct quote, or it reproduces the corruption and a clinician sees a
+  # threshold the guideline never wrote. Tagged so the run reports them apart — otherwise a
+  # known extraction bug is laundered into a "model rejection rate".
+  #
+  # #49 cut #45's evidence base in half: both GFR cases below are KDIGO, now withdrawn, so
+  # they move to withdrawn_source. asthma-severity-age (NHLBI p9) is the ONLY #45 case left on
+  # the shippable corpus. #45 must be re-grounded on it and on CDC MEC's own thresholds, or
+  # closed as unreproducible until a symbol-font document we may keep is ingested — see #49.
 
   - id: ckd-gfr-categories
     text: What are the GFR categories G1 to G5 used to classify chronic kidney disease?
     language: English
-    expect: answerable
-    source: KDIGO p18
+    expect: withdrawn_source
+    source: KDIGO p18 (withdrawn #49)
     tags: [glyph-45, table]
 
   - id: ckd-definition-threshold
     text: What GFR threshold defines chronic kidney disease?
     language: English
-    expect: answerable
-    source: KDIGO p18
+    expect: withdrawn_source
+    source: KDIGO p18 (withdrawn #49)
     tags: [glyph-45, threshold]
 
   - id: asthma-severity-age

@@ -214,6 +214,29 @@ async def test_pending_stays_excluded_even_with_archived_included(session, embed
     assert version.id not in versions_in(hits)
 
 
+async def test_withdrawn_stays_excluded_even_with_archived_included(session, embedder):
+    """#49 is a licence firewall, and a firewall with an exception is not one. A version
+    withdrawn because its licence forbids indexing must be unreachable by EVERY path — the
+    default search, and the deliberate include_archived widening that a supersession recheck
+    uses. archived means "superseded, still inspectable on purpose"; withdrawn means "must not
+    answer, at all", and conflating them would let a KDIGO recheck resurface KDIGO."""
+    version = await make_version(
+        session,
+        title="Withdrawn For Licence",
+        org="KDIGO",
+        label="wl-2012",
+        status=VersionStatus.WITHDRAWN,
+        texts=["Prohibited guidance about enalapril dosing."],
+        embedder=embedder,
+    )
+
+    default = await search(session, "enalapril", embedder, limit=SEARCH_DEPTH)
+    assert version.id not in versions_in(default)
+
+    widened = await search(session, "enalapril", embedder, limit=SEARCH_DEPTH, include_archived=True)
+    assert version.id not in versions_in(widened), "withdrawn must not resurface with archived"
+
+
 # --- what a hit carries ------------------------------------------------------------
 
 

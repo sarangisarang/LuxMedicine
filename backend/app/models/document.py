@@ -30,6 +30,19 @@ class VersionStatus(str, enum.Enum):
     ACTIVE = "active"
     ARCHIVED = "archived"
 
+    # Removed from search for a reason that is NOT supersession: a licence that forbids
+    # indexing (#49 — KDIGO and NICE both prohibit an "information storage and retrieval
+    # system"), a retraction, an ingest later found corrupt. Distinct from ARCHIVED on
+    # purpose: archived means "a newer edition replaced this" and stays reachable by explicit
+    # request (#10), which is exactly wrong here — a withdrawn version must not answer at all,
+    # by any path. Retrieval includes only ACTIVE (and ARCHIVED when asked), so WITHDRAWN is
+    # excluded by construction rather than by a filter someone must remember.
+    #
+    # Reversible: the chunks and the PDF are left in place, so flipping back to ACTIVE
+    # re-indexes nothing. That is what makes it the right tool for a licence that might later
+    # be granted, and it is why licensing removal is a status change, not a DELETE.
+    WITHDRAWN = "withdrawn"
+
 
 class Document(Base):
     """A guideline as a work — e.g. "ESC Heart Failure Guidelines" — across all editions.
