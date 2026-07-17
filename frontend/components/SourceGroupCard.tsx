@@ -1,6 +1,9 @@
+"use client";
+
 import type { Citation, SourceGroup } from "@/lib/api";
 
 import { CitationItem } from "./CitationItem";
+import { useT } from "./LanguageContext";
 import { StalenessBanner } from "./StalenessBanner";
 
 // #33 — one issuing organisation's guidance, in its own words. Grouped by organisation so a
@@ -14,6 +17,8 @@ export function SourceGroupCard({
   group: SourceGroup;
   onOpenSource?: (c: Citation) => void;
 }) {
+  const t = useT();
+
   return (
     <article className="overflow-hidden rounded-lg border border-neutral-300 dark:border-neutral-700">
       <header className="flex items-baseline gap-2 border-b border-neutral-200 px-4 py-2.5 dark:border-neutral-800">
@@ -34,8 +39,7 @@ export function SourceGroupCard({
         // quote: an equation or table on these pages could not be read, so "the guideline
         // does not say" and "we could not read where it says it" stay distinguishable.
         <p className="border-t border-neutral-200 px-4 py-2 text-xs text-neutral-500 dark:border-neutral-800">
-          Pages {group.unreadable_pages.join(", ")} of this document could not be read and
-          are not reflected above.
+          {t.unreadable(group.unreadable_pages.join(", "))}
         </p>
       )}
     </article>

@@ -1,3 +1,5 @@
+"use client";
+
 import type { Citation } from "@/lib/api";
 import { pageDisplay } from "@/lib/wording";
 

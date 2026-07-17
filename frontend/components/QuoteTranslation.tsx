@@ -4,6 +4,8 @@ import { useState } from "react";
 
 import type { TranslateResponse } from "@/lib/api";
 
+import { useT } from "./LanguageContext";
+
 // Languages a clinician here actually reads. The list is short on purpose: every entry is a
 // language someone has to be able to check the output in.
 const LANGUAGES: { code: string; label: string }[] = [
@@ -26,6 +28,7 @@ const LANGUAGES: { code: string; label: string }[] = [
  * directly above for comparison.
  */
 export function QuoteTranslation({ quote }: { quote: string }) {
+  const t = useT();
   const [result, setResult] = useState<TranslateResponse | null>(null);
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -41,7 +44,7 @@ export function QuoteTranslation({ quote }: { quote: string }) {
         body: JSON.stringify({ quote, target_language: language }),
       });
       const data = await res.json();
-      if (!res.ok) setError(data.error ?? `translation failed (${res.status})`);
+      if (!res.ok) setError(data.error ?? `${t.translation.failed} (${res.status})`);
       else setResult(data as TranslateResponse);
     } catch (e) {
       setError((e as Error).message);
@@ -53,7 +56,7 @@ export function QuoteTranslation({ quote }: { quote: string }) {
   return (
     <div className="mt-2">
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-[11px] text-neutral-400">Translate:</span>
+        <span className="text-[11px] text-neutral-400">{t.translation.label}</span>
         {LANGUAGES.map((l) => (
           <button
             key={l.code}
@@ -76,13 +79,10 @@ export function QuoteTranslation({ quote }: { quote: string }) {
           {/* Says what this is before it can be read as the guideline speaking. */}
           <figcaption className="mb-1 flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-amber-700 dark:text-amber-500">
             <span aria-hidden>⚠</span>
-            Machine translation · {result.target_language} · not the guideline&apos;s words,
-            not verified
+            {t.translation.banner(result.target_language)}
           </figcaption>
           <p className="text-sm text-neutral-700 dark:text-neutral-300">{result.text}</p>
-          <p className="mt-1.5 text-[10px] text-neutral-500">
-            The verbatim quote above is the record. Check anything you act on against it.
-          </p>
+          <p className="mt-1.5 text-[10px] text-neutral-500">{t.translation.footnote}</p>
         </figure>
       )}
     </div>

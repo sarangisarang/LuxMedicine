@@ -8,6 +8,8 @@ import "react-pdf/dist/Page/TextLayer.css";
 import type { Citation } from "@/lib/api";
 import { pageDisplay } from "@/lib/wording";
 
+import { useT } from "./LanguageContext";
+
 // Self-hosted worker (public/pdf.worker.min.mjs), synced from the installed pdfjs-dist by
 // scripts/sync-pdf-worker.mjs so its version always matches react-pdf's bundled pdfjs — a
 // mismatch is the "API version does not match Worker version" crash. Served from our own
@@ -24,6 +26,7 @@ export function PdfViewer({
   citation: Citation;
   onClose: () => void;
 }) {
+  const t = useT();
   // page and error initialise from the citation; the parent gives this component a `key`
   // per citation, so selecting a different one remounts it fresh at the new cited page
   // rather than syncing through an effect.
@@ -83,7 +86,7 @@ export function PdfViewer({
       <header className="flex items-center justify-between gap-2 border-b border-neutral-200 px-3 py-2 dark:border-neutral-800">
         <div className="min-w-0">
           <p className="truncate text-xs font-medium">{citation.document_title}</p>
-          <p className="text-xs text-neutral-500">cited: {pageDisplay(citation)}</p>
+          <p className="text-xs text-neutral-500">{t.pdf.cited}: {pageDisplay(citation)}</p>
         </div>
         <button
           type="button"
@@ -91,7 +94,7 @@ export function PdfViewer({
           className="shrink-0 rounded px-2 py-1 text-xs text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800"
           aria-label="Close source viewer"
         >
-          Close
+          {t.pdf.close}
         </button>
       </header>
 
@@ -103,11 +106,11 @@ export function PdfViewer({
           disabled={page <= 1}
           className="rounded px-2 py-0.5 disabled:opacity-30 hover:bg-neutral-100 dark:hover:bg-neutral-800"
         >
-          ‹ Prev
+          {t.pdf.prev}
         </button>
         <span className="tabular-nums text-neutral-500">
-          Page {page}
-          {numPages ? ` of ${numPages}` : ""}
+          {t.pdf.page} {page}
+          {numPages ? ` ${t.pdf.of} ${numPages}` : ""}
         </span>
         <button
           type="button"
@@ -115,7 +118,7 @@ export function PdfViewer({
           disabled={numPages !== null && page >= numPages}
           className="rounded px-2 py-0.5 disabled:opacity-30 hover:bg-neutral-100 dark:hover:bg-neutral-800"
         >
-          Next ›
+          {t.pdf.next}
         </button>
       </div>
 
@@ -127,11 +130,9 @@ export function PdfViewer({
             file={fileUrl}
             onLoadSuccess={({ numPages }) => setNumPages(numPages)}
             onLoadError={(e) =>
-              setError(
-                `Could not load the source PDF: ${e.message}. Is the backend running?`,
-              )
+              setError(t.pdf.error(e.message))
             }
-            loading={<p className="p-4 text-sm text-neutral-500">Loading source…</p>}
+            loading={<p className="p-4 text-sm text-neutral-500">{t.pdf.loading}</p>}
           >
             {width > 0 && (
               <Page
