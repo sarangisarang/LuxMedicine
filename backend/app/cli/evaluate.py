@@ -29,6 +29,14 @@ retrieves, extracts, validates and writes a hash-chained audit row. Rows land un
 `clinic-eval` so an eval never mixes into a clinic's chain. There is no unaudited path and
 this does not invent one.
 
+**A run is reproducible, which took a measurement to establish.** Six questions, three
+identical runs with the cache off, eighteen live calls: 0/6 flipped (2026-07-17). At
+temperature 0 this model returns the same outcome and the same citation count every time, so a
+difference between two runs is a difference in the corpus, the retrieval, the prompt or the
+model — never noise. That is what makes a prompt change measurable: 3/3 answering before and
+0/3 after is a result, not a coincidence. Before that was measured, every surprising outcome
+had "the model is just like that" available as an excuse, and it was the wrong one.
+
 Paced for the free tier: `gemini-3.1-flash-lite` allows 15 RPM / 500 RPD, so the default
 pacing is conservative and the whole set fits in a day. Set LLM_CACHE_DIR and a re-run of
 unchanged questions costs nothing.

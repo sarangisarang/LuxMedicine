@@ -12,19 +12,30 @@ it — this replaces a network call, not a request.
 retrieval ranks differently, the passages change and so does the key. A stale answer for a
 changed corpus is not reachable — the miss is structural, not a TTL someone has to tune.
 
-**Local development only, enforced at boot rather than documented.** Two reasons, both real:
+**Local development only, enforced at boot rather than documented — and for one reason, not
+two.**
 
-1. *It would falsify the measurement.* The model is not deterministic even at temperature 0 —
-   the same question answers on one run and declines on the next, measured repeatedly on
-   2026-07-17. A cache freezes whichever reply came first, which is exactly what you want
-   while iterating and exactly what you must not have while measuring rejection_rate.
-2. *It would break erasure.* The key is derived from the question, and #28 exists to make a
-   question unrecoverable — `redact_query` destroys the text and the salt. A cache file whose
-   name encodes an unsalted hash of the question is a copy of that question that erasure
-   cannot reach, sitting outside the database it was so carefully removed from.
+*It would break erasure.* The key is derived from the question, and #28 exists to make a
+question unrecoverable: `redact_query` destroys the text and the salt. A cache file whose name
+encodes an unsalted hash of the question is a copy of that question that erasure cannot reach,
+sitting outside the database it was so carefully removed from. That is decisive on its own, so
+`Settings` refuses to boot with a cache configured outside `ENVIRONMENT=local`, the same way it
+refuses to boot without an issuer.
 
-So `Settings` refuses to boot with a cache configured outside `ENVIRONMENT=local`, in the same
-way it refuses to boot without an issuer. The friction is the point, again.
+**This file used to give a second reason, and it was wrong.** It said the model is not
+deterministic even at temperature 0, so a cache would freeze whichever reply came first and
+falsify a rejection_rate run. Measured on 2026-07-17 with the cache off — six questions, three
+identical runs, eighteen live calls: **0/6 flipped.** gemini-3.1-flash-lite at temperature 0
+returned the same outcome and the same citation count every time. What looked like the model
+wavering was the *input* moving underneath it: limit=8 vs limit=10, three different models in
+one afternoon, a quota degrading, a corpus that grew by 1,436 chunks. Each of those changes the
+passages, and the passages are half the question.
+
+So this cache is more defensible than the note introducing it claimed: with the model in the
+key, a hit returns what a live call would have returned. The residual caution worth keeping is
+that determinism here is evidence at n=3 over six questions on one model, not a guarantee —
+which is why the key carries the model, and why this still has no business outside a
+developer's machine.
 """
 
 from __future__ import annotations

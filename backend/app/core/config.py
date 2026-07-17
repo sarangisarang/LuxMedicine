@@ -109,13 +109,15 @@ class Settings(BaseSettings):
     def _the_llm_cache_is_local_only(self) -> "Settings":
         """Refuse to boot with a model cache outside local development.
 
-        Two reasons, and the second is the one that matters. It would falsify the
-        measurement: the model is not deterministic even at temperature 0, so a cache freezes
-        whichever reply came first — useful while iterating, ruinous while measuring
-        rejection_rate. And it would break erasure: the cache key is derived from the
-        question, and #28 exists to make a question unrecoverable. `redact_query` destroys
-        the text and the salt; it cannot reach a file on disk whose name is an unsalted hash
-        of the same question.
+        It would break erasure: the cache key is derived from the question, and #28 exists to
+        make a question unrecoverable. `redact_query` destroys the text and the salt; it
+        cannot reach a file on disk whose name is an unsalted hash of the same question. That
+        is the whole reason, and it is enough.
+
+        This used to claim a second one — that the model is not deterministic at temperature
+        0, so a cache would freeze a coin-flip. Measured 2026-07-17 with the cache off: 0/6
+        questions flipped across three identical runs. The wavering was the input changing,
+        not the model. See services/llm_cache.py.
 
         A flag would be the wrong shape here for the same reason `core/auth.py` has no
         AUTH_DISABLED: it would ship, and the failure would be silent because everything
