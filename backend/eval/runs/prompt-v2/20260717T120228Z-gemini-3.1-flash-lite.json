@@ -1,0 +1,536 @@
+{
+  "summary": {
+    "at": "2026-07-17T12:02:28.693875+00:00",
+    "model": "cached-or-live",
+    "counts": {
+      "answered": 15,
+      "correctly_declined": 8,
+      "wrongly_declined": 3
+    },
+    "by_id": {
+      "answered": [
+        "asthma-beta-blockers",
+        "asthma-beta-blockers-de",
+        "asthma-cockroach",
+        "asthma-satisfaction",
+        "ckd-podiatric",
+        "ckd-podiatric-de",
+        "ckd-pth",
+        "hf-vaccination",
+        "hf-sodium",
+        "hf-sodium-de",
+        "contraception-migraine-aura",
+        "contraception-migraine-aura-de",
+        "contraception-iud-timing",
+        "ckd-gfr-categories",
+        "ckd-definition-threshold"
+      ],
+      "wrongly_declined": [
+        "contraception-postpartum",
+        "contraception-in-ckd",
+        "asthma-severity-age"
+      ],
+      "correctly_declined": [
+        "not-covered-sepsis",
+        "not-covered-stroke",
+        "not-covered-diabetes-hba1c",
+        "not-covered-pregnancy",
+        "not-covered-covid",
+        "junk-topic-only",
+        "junk-meta",
+        "junk-empty-ish"
+      ]
+    },
+    "answerable": {
+      "answered": "15/18",
+      "clean_prose_answered": "13/15",
+      "glyph_45_answered": "2/3"
+    },
+    "not_covered": {
+      "correctly_declined": "8/8"
+    },
+    "rejected_quotes": {
+      "total": 3,
+      "by_verdict": {
+        "mis_cited": 1,
+        "paraphrase": 2
+      },
+      "inventions": 0
+    }
+  },
+  "outcomes": [
+    {
+      "id": "asthma-beta-blockers",
+      "expect": "answerable",
+      "tags": [],
+      "no_answer_reason": null,
+      "groups": 1,
+      "citations": 2,
+      "orgs": [
+        "NHLBI"
+      ],
+      "pages": [
+        "204",
+        "205"
+      ],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 1.5,
+      "error": null
+    },
+    {
+      "id": "asthma-beta-blockers-de",
+      "expect": "answerable",
+      "tags": [],
+      "no_answer_reason": null,
+      "groups": 1,
+      "citations": 2,
+      "orgs": [
+        "NHLBI"
+      ],
+      "pages": [
+        "205",
+        "205"
+      ],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 1.16,
+      "error": null
+    },
+    {
+      "id": "asthma-cockroach",
+      "expect": "answerable",
+      "tags": [],
+      "no_answer_reason": null,
+      "groups": 1,
+      "citations": 9,
+      "orgs": [
+        "NHLBI"
+      ],
+      "pages": [
+        "195",
+        "195",
+        "195",
+        "195",
+        "195",
+        "133",
+        "133",
+        "132",
+        "133"
+      ],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 1.88,
+      "error": null
+    },
+    {
+      "id": "asthma-satisfaction",
+      "expect": "answerable",
+      "tags": [],
+      "no_answer_reason": null,
+      "groups": 1,
+      "citations": 1,
+      "orgs": [
+        "NHLBI"
+      ],
+      "pages": [
+        "87"
+      ],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 1.0,
+      "error": null
+    },
+    {
+      "id": "ckd-podiatric",
+      "expect": "answerable",
+      "tags": [],
+      "no_answer_reason": null,
+      "groups": 1,
+      "citations": 3,
+      "orgs": [
+        "KDIGO"
+      ],
+      "pages": [
+        "113",
+        "25",
+        "113"
+      ],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 1.2,
+      "error": null
+    },
+    {
+      "id": "ckd-podiatric-de",
+      "expect": "answerable",
+      "tags": [],
+      "no_answer_reason": null,
+      "groups": 1,
+      "citations": 1,
+      "orgs": [
+        "KDIGO"
+      ],
+      "pages": [
+        "113"
+      ],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 1.0,
+      "error": null
+    },
+    {
+      "id": "ckd-pth",
+      "expect": "answerable",
+      "tags": [],
+      "no_answer_reason": null,
+      "groups": 1,
+      "citations": 1,
+      "orgs": [
+        "KDIGO"
+      ],
+      "pages": [
+        "24"
+      ],
+      "rejected": 1,
+      "diagnoses": [
+        {
+          "verdict": "mis_cited",
+          "is_invention": false,
+          "detail": "verbatim in passage 5 \u2014 quoted honestly, numbered wrong",
+          "quote": "We suggest that people with levels of intact PTH above the upper normal limit of the assay are first evaluated for hyperphosphatemia, hypocalcemia, and vitamin "
+        }
+      ],
+      "elapsed_s": 1.12,
+      "error": null
+    },
+    {
+      "id": "hf-vaccination",
+      "expect": "answerable",
+      "tags": [],
+      "no_answer_reason": null,
+      "groups": 1,
+      "citations": 2,
+      "orgs": [
+        "NICE"
+      ],
+      "pages": [
+        "23",
+        "23"
+      ],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 1.09,
+      "error": null
+    },
+    {
+      "id": "hf-sodium",
+      "expect": "answerable",
+      "tags": [],
+      "no_answer_reason": null,
+      "groups": 1,
+      "citations": 2,
+      "orgs": [
+        "NICE"
+      ],
+      "pages": [
+        "23",
+        "23"
+      ],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 1.28,
+      "error": null
+    },
+    {
+      "id": "hf-sodium-de",
+      "expect": "answerable",
+      "tags": [],
+      "no_answer_reason": null,
+      "groups": 1,
+      "citations": 2,
+      "orgs": [
+        "NICE"
+      ],
+      "pages": [
+        "23",
+        "23"
+      ],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 1.14,
+      "error": null
+    },
+    {
+      "id": "contraception-migraine-aura",
+      "expect": "answerable",
+      "tags": [],
+      "no_answer_reason": null,
+      "groups": 1,
+      "citations": 1,
+      "orgs": [
+        "CDC"
+      ],
+      "pages": [
+        "102"
+      ],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 0.95,
+      "error": null
+    },
+    {
+      "id": "contraception-migraine-aura-de",
+      "expect": "answerable",
+      "tags": [],
+      "no_answer_reason": null,
+      "groups": 1,
+      "citations": 1,
+      "orgs": [
+        "CDC"
+      ],
+      "pages": [
+        "80"
+      ],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 0.92,
+      "error": null
+    },
+    {
+      "id": "contraception-postpartum",
+      "expect": "answerable",
+      "tags": [],
+      "no_answer_reason": "sources_do_not_answer",
+      "groups": 0,
+      "citations": 0,
+      "orgs": [],
+      "pages": [],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 0.92,
+      "error": null
+    },
+    {
+      "id": "contraception-iud-timing",
+      "expect": "answerable",
+      "tags": [],
+      "no_answer_reason": null,
+      "groups": 1,
+      "citations": 1,
+      "orgs": [
+        "CDC"
+      ],
+      "pages": [
+        "52"
+      ],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 1.08,
+      "error": null
+    },
+    {
+      "id": "contraception-in-ckd",
+      "expect": "answerable",
+      "tags": [
+        "cross-specialty"
+      ],
+      "no_answer_reason": "sources_do_not_answer",
+      "groups": 0,
+      "citations": 0,
+      "orgs": [],
+      "pages": [],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 0.83,
+      "error": null
+    },
+    {
+      "id": "ckd-gfr-categories",
+      "expect": "answerable",
+      "tags": [
+        "glyph-45",
+        "table"
+      ],
+      "no_answer_reason": null,
+      "groups": 1,
+      "citations": 1,
+      "orgs": [
+        "KDIGO"
+      ],
+      "pages": [
+        "40"
+      ],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 1.11,
+      "error": null
+    },
+    {
+      "id": "ckd-definition-threshold",
+      "expect": "answerable",
+      "tags": [
+        "glyph-45",
+        "threshold"
+      ],
+      "no_answer_reason": null,
+      "groups": 1,
+      "citations": 3,
+      "orgs": [
+        "KDIGO"
+      ],
+      "pages": [
+        "35",
+        "32",
+        "42"
+      ],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 1.25,
+      "error": null
+    },
+    {
+      "id": "asthma-severity-age",
+      "expect": "answerable",
+      "tags": [
+        "glyph-45",
+        "threshold"
+      ],
+      "no_answer_reason": "verification_failed",
+      "groups": 0,
+      "citations": 0,
+      "orgs": [],
+      "pages": [],
+      "rejected": 1,
+      "diagnoses": [
+        {
+          "verdict": "paraphrase",
+          "is_invention": false,
+          "detail": "100% of its words are in the cited passage, reworded",
+          "quote": "FIGURE 3\u20134c. CLASSIFYING ASTHMA SEVERITY IN YOUTHS  12 YEARS OF AGE\nAND ADULTS"
+        }
+      ],
+      "elapsed_s": 1.11,
+      "error": null
+    },
+    {
+      "id": "not-covered-sepsis",
+      "expect": "not_covered",
+      "tags": [],
+      "no_answer_reason": "sources_do_not_answer",
+      "groups": 0,
+      "citations": 0,
+      "orgs": [],
+      "pages": [],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 0.91,
+      "error": null
+    },
+    {
+      "id": "not-covered-stroke",
+      "expect": "not_covered",
+      "tags": [],
+      "no_answer_reason": "sources_do_not_answer",
+      "groups": 0,
+      "citations": 0,
+      "orgs": [],
+      "pages": [],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 0.91,
+      "error": null
+    },
+    {
+      "id": "not-covered-diabetes-hba1c",
+      "expect": "not_covered",
+      "tags": [],
+      "no_answer_reason": "verification_failed",
+      "groups": 0,
+      "citations": 0,
+      "orgs": [],
+      "pages": [],
+      "rejected": 1,
+      "diagnoses": [
+        {
+          "verdict": "paraphrase",
+          "is_invention": false,
+          "detail": "100% of its words are in the cited passage, reworded",
+          "quote": "3.1.15: We recommend a target hemoglobin A (HbA ) of B7.0% (53mmol/mol) to prevent or delay progression of the microvascular complications of diabetes, includin"
+        }
+      ],
+      "elapsed_s": 1.05,
+      "error": null
+    },
+    {
+      "id": "not-covered-pregnancy",
+      "expect": "not_covered",
+      "tags": [],
+      "no_answer_reason": "sources_do_not_answer",
+      "groups": 0,
+      "citations": 0,
+      "orgs": [],
+      "pages": [],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 0.86,
+      "error": null
+    },
+    {
+      "id": "not-covered-covid",
+      "expect": "not_covered",
+      "tags": [],
+      "no_answer_reason": "sources_do_not_answer",
+      "groups": 0,
+      "citations": 0,
+      "orgs": [],
+      "pages": [],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 0.88,
+      "error": null
+    },
+    {
+      "id": "junk-topic-only",
+      "expect": "not_covered",
+      "tags": [],
+      "no_answer_reason": "sources_do_not_answer",
+      "groups": 0,
+      "citations": 0,
+      "orgs": [],
+      "pages": [],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 1.94,
+      "error": null
+    },
+    {
+      "id": "junk-meta",
+      "expect": "not_covered",
+      "tags": [],
+      "no_answer_reason": "sources_do_not_answer",
+      "groups": 0,
+      "citations": 0,
+      "orgs": [],
+      "pages": [],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 0.91,
+      "error": null
+    },
+    {
+      "id": "junk-empty-ish",
+      "expect": "not_covered",
+      "tags": [],
+      "no_answer_reason": "sources_do_not_answer",
+      "groups": 0,
+      "citations": 0,
+      "orgs": [],
+      "pages": [],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 0.92,
+      "error": null
+    }
+  ]
+}

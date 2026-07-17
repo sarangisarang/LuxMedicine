@@ -8,9 +8,18 @@ remembered. `app/api/queries.py` still has no unaudited path, because there is n
 it — this replaces a network call, not a request.
 
 **It self-invalidates, which is the part that makes it correct.** The key is
-`sha256(model + question + passages)`. If the corpus changes, or a chunk is re-indexed, or
-retrieval ranks differently, the passages change and so does the key. A stale answer for a
-changed corpus is not reachable — the miss is structural, not a TTL someone has to tune.
+`sha256(model + prompt + question + passages)` — everything that determines the reply. If the
+corpus changes, or a chunk is re-indexed, or retrieval ranks differently, the passages change
+and so does the key. A stale answer for a changed corpus is not reachable; the miss is
+structural, not a TTL someone has to tune.
+
+**The prompt is in the key because it was not, and that was a bug waiting for its moment.**
+The first version keyed on model + question + passages, which is every input except the one a
+person is most likely to edit. Change a rule in SYSTEM_PROMPT to fix a behaviour, re-run the
+eval, and every question would answer from disk: the old model's reply, reported as the new
+prompt's result. A tool built to save requests will happily fake the experiment that needs
+them — this cache had already done exactly that once, returning 0/21 flipped for a
+determinism comparison it answered entirely from disk.
 
 **Local development only, enforced at boot rather than documented — and for one reason, not
 two.**
@@ -46,7 +55,16 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app.services.answering import ExtractionResult, Extractor
+from app.services.extractor_claude import SYSTEM_PROMPT as EXTRACTION_PROMPT
+from app.services.translation import SYSTEM_PROMPT as TRANSLATION_PROMPT
 from app.services.translation import MachineTranslation, Translator
+
+
+def prompt_fingerprint(prompt: str) -> str:
+    """The prompt, condensed into the key. Editing a rule must be a cache miss — the reply is
+    a function of the instructions as much as of the passages, and a run that answers the new
+    prompt from the old prompt's replies is not a run."""
+    return hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
 
 
 def cache_key(*parts: str) -> str:
@@ -99,7 +117,9 @@ class CachingExtractor:
         self._model = model
 
     def extract(self, question: str, passages: list[str]) -> ExtractionResult | None:
-        key = cache_key("extract", self._model, question, *passages)
+        key = cache_key(
+            "extract", self._model, prompt_fingerprint(EXTRACTION_PROMPT), question, *passages
+        )
         if (hit := self._cache.get(key)) is not None:
             # `None` is a real answer — the model declining is a result, not an absence — so
             # it is stored explicitly rather than inferred from a missing file.
@@ -124,7 +144,10 @@ class CachingTranslator:
         self._model = model
 
     def translate(self, quote: str, *, target_language: str) -> MachineTranslation:
-        key = cache_key("translate", self._model, target_language, quote)
+        key = cache_key(
+            "translate", self._model, prompt_fingerprint(TRANSLATION_PROMPT),
+            target_language, quote,
+        )
         if (hit := self._cache.get(key)) is not None:
             return MachineTranslation(**hit)
 

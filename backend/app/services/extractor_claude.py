@@ -59,6 +59,40 @@ than no answer, because the clinician cannot tell the difference.
 reason to want one.\
 """
 
+# **There is no rule here about junk input, and that is a measured decision (#38).**
+#
+# Three questions the corpus handles differently sit on one axis, and a rule added here moves
+# them together rather than separately:
+#
+#   junk-topic-only / junk-meta    "heart failure", "What can you do?" — no question is asked
+#   contraception-in-ckd           a real question whose answer lives in another speciality's
+#                                  guideline — the case that decided against a speciality filter
+#   not-covered-diabetes-hba1c     a real question, topically adjacent, genuinely absent
+#
+# Measured against the full 26-question set, one run per wording (2026-07-17):
+#
+#   BASE            junk 6/8   ckd answered      hba1c declined
+#   v2 "passages that share the input's vocabulary are not an answer to it"
+#                   junk 8/8   ckd DECLINED      hba1c declined
+#   v3 same, narrowed to "only for deciding whether a question was asked"
+#                   junk 6/8   ckd answered      hba1c declined     — identical to BASE
+#   v4 "decide from the input alone, before the passages are in front of you"
+#                   junk 6/8   ckd answered      hba1c ANSWERED     — worse than BASE
+#
+# v2's sentence was doing two jobs at once. It is what makes the model decline junk, and it is
+# also the only thing telling it that a passage sharing the question's vocabulary is not
+# thereby an answer — so it took contraception-in-ckd down with the junk, and removing it in v4
+# made the model *more* willing to answer the adjacent-but-absent question from the nearest
+# passage. Every wording bought one and sold another.
+#
+# The three cases look alike from here: this step sees a question and some passages that
+# mention its words, and cannot tell "no question was asked" from "the question is real and the
+# answer is genuinely elsewhere". So junk does not belong in this prompt. It belongs before
+# retrieval, where the input is judged on its own and the failure mode is mild — a
+# misclassified question asks the clinician to rephrase, where a wrong decline here silently
+# withholds an answer that exists. That is the trade the aggregate hid: answered stayed 15/18
+# across all four runs while three questions swapped underneath it.
+
 
 def render_prompt(question: str, passages: list[str]) -> str:
     """The user turn: the question, then the numbered passages.
