@@ -44,7 +44,14 @@ export function QuoteTranslation({ quote }: { quote: string }) {
         body: JSON.stringify({ quote, target_language: language }),
       });
       const data = await res.json();
-      if (!res.ok) setError(data.error ?? `${t.translation.failed} (${res.status})`);
+      if (!res.ok) {
+        // 429 is the quota, not a fault: it gets its own words so nobody debugs a budget.
+        setError(
+          res.status === 429
+            ? t.translation.rateLimited
+            : (data.error ?? `${t.translation.failed} (${res.status})`),
+        );
+      }
       else setResult(data as TranslateResponse);
     } catch (e) {
       setError((e as Error).message);

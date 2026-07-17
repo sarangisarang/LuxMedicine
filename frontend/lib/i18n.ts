@@ -56,6 +56,7 @@ type Strings = {
     banner: (language: string) => string;
     footnote: string;
     failed: string;
+    rateLimited: string;
   };
 };
 
@@ -95,6 +96,8 @@ export const STRINGS: Record<UiLang, Strings> = {
       banner: (l) => `Machine translation · ${l} · not the guideline's words, not verified`,
       footnote: "The verbatim quote above is the record. Check anything you act on against it.",
       failed: "Translation failed.",
+      // An expected condition, not a fault — say so, or a clinician goes looking for a bug.
+      rateLimited: "The translation service has reached its request limit. Try again later — the quote above is unaffected.",
     },
   },
 
@@ -139,6 +142,8 @@ export const STRINGS: Record<UiLang, Strings> = {
       footnote:
         "Maßgeblich ist das wörtliche Zitat oben. Prüfen Sie alles, wonach Sie handeln, dort nach.",
       failed: "Übersetzung fehlgeschlagen.",
+      rateLimited:
+        "Der Übersetzungsdienst hat sein Anfragelimit erreicht. Versuchen Sie es später erneut — das Zitat oben ist davon nicht betroffen.",
     },
   },
 
@@ -177,6 +182,8 @@ export const STRINGS: Record<UiLang, Strings> = {
       footnote:
         "ავტორიტეტულია ზემოთ მოცემული სიტყვასიტყვითი ციტატა. ყველაფერი, რაზეც მოქმედებ, იქ გადაამოწმე.",
       failed: "თარგმანი ვერ შესრულდა.",
+      rateLimited:
+        "თარგმანის სერვისმა მოთხოვნების ლიმიტს მიაღწია. სცადე მოგვიანებით — ზემოთ მოცემულ ციტატას ეს არ ეხება.",
     },
   },
 };

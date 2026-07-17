@@ -93,18 +93,33 @@ class GeminiTranslator(Translator):
         self._temperature = temperature
 
     def translate(self, quote: str, *, target_language: str) -> MachineTranslation:
-        from google.genai import types
+        from google.genai import errors, types
 
-        response = self._client.models.generate_content(
-            model=self.model,
-            contents=f"Target language: {target_language}\n\nSentence:\n{quote}",
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
-                # Zero, for the same reason the extractor uses zero: this is a transformation
-                # of a given sentence, not a place for the model to have ideas.
-                temperature=self._temperature,
-            ),
-        )
+        try:
+            response = self._client.models.generate_content(
+                model=self.model,
+                contents=f"Target language: {target_language}\n\nSentence:\n{quote}",
+                config=types.GenerateContentConfig(
+                    system_instruction=SYSTEM_PROMPT,
+                    # Zero, for the same reason the extractor uses zero: this is a
+                    # transformation of a given sentence, not a place for the model to have
+                    # ideas.
+                    temperature=self._temperature,
+                ),
+            )
+        except errors.ClientError as exc:
+            # The free tier is 20 requests/day PER MODEL — measured, not assumed: both
+            # gemini-3-flash-preview and gemini-2.5-flash report `limit: 20`. Running out is
+            # an ordinary Tuesday, not an internal error, and it was reaching the clinician
+            # as a bare 500 because nothing here caught it.
+            if getattr(exc, "code", None) == 429:
+                raise TranslationRateLimited(
+                    "the translation model's request quota is exhausted"
+                ) from exc
+            raise TranslationUnavailable(f"the translation model refused: {exc}") from exc
+        except errors.APIError as exc:
+            raise TranslationUnavailable(f"the translation model is unavailable: {exc}") from exc
+
         text = (response.text or "").strip()
         if not text:
             raise TranslationUnavailable("the model returned nothing")
@@ -116,3 +131,12 @@ class GeminiTranslator(Translator):
 class TranslationUnavailable(RuntimeError):
     """The translation could not be produced. Reported, never substituted with the original:
     showing the English and calling it German would be a quieter lie than showing nothing."""
+
+
+class TranslationRateLimited(TranslationUnavailable):
+    """The model's quota is spent — an expected condition, not a fault.
+
+    Its own type because the caller should say "try later", not "something went wrong": one
+    is a fact about a budget, the other sends someone looking for a bug. The free tier is
+    20 requests/day per model, so a clinician will meet this.
+    """

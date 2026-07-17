@@ -16,7 +16,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.core.auth import Clinician, current_clinician
-from app.services.translation import TranslationUnavailable, Translator
+from app.services.translation import (
+    TranslationRateLimited,
+    TranslationUnavailable,
+    Translator,
+)
 
 router = APIRouter(prefix="/translate", tags=["translate"])
 
@@ -58,6 +62,11 @@ async def post_translation(
     """A reading aid for one quote. Not an answer, not evidence, not audited as either."""
     try:
         result = translator.translate(request.quote, target_language=request.target_language)
+    except TranslationRateLimited as exc:
+        # 429, not 500: the quota being spent is a fact about a budget, and answering with
+        # "Internal Server Error" sends a clinician looking for a bug that is not there. The
+        # free tier is 20 requests/day per model, so this is a condition they will meet.
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, str(exc)) from exc
     except TranslationUnavailable as exc:
         # Reported, never papered over by returning the original: showing English and
         # labelling it German would be a quieter lie than showing nothing.
