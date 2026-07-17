@@ -63,6 +63,21 @@ from app.services.extractor_claude import SYSTEM_PROMPT, render_prompt
 # key decides what that is. Overridable by GEMINI_MODEL: a measurement taken against a
 # model the deployment cannot reach is not a measurement of the deployment.
 #
+# **The free tier's real constraint is requests per day, not tokens, and it is not uniform
+# across models.** Measured 2026-07-17 from the AI Studio rate-limit dashboard, because the
+# 429 body only ever names the model it just refused:
+#
+#     gemini-3-flash-preview / 2.5-flash / 3.5-flash    20 RPD    <- the default, and a wall
+#     gemini-3.1-flash-lite                            500 RPD    15 RPM, 250K TPM
+#     gemma-4-26b / gemma-4-31b                     14,400 RPD    30 RPM, 16K TPM
+#
+# Twenty a day cannot survive one debugging session, let alone a 500-question rejection_rate
+# run; 500 a day can do both. The default is NOT changed to the lite model on that basis
+# alone: it answered one real question with zero #19 rejections, and one question is not a
+# faithfulness measurement. Which model belongs here is a decision for the rejection_rate
+# run — which the 500 RPD finally makes possible. Set GEMINI_MODEL to choose; see
+# .env.example.
+#
 # Pinned rather than aliased: an extractor whose behaviour changes under it without a
 # commit is an extractor whose measurements expire silently.
 DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview")
