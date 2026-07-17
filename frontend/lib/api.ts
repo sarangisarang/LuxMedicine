@@ -9,6 +9,8 @@ import { API_URL } from "./config";
 
 export type QueryRequest = components["schemas"]["QueryRequest"];
 export type QueryResponse = components["schemas"]["QueryResponse"];
+export type TranslateRequest = components["schemas"]["TranslateRequest"];
+export type TranslateResponse = components["schemas"]["TranslateResponse"];
 export type AnswerPayload = components["schemas"]["AnswerPayload"];
 export type SourceGroup = components["schemas"]["SourceGroup"];
 export type Citation = components["schemas"]["Citation"];
@@ -50,4 +52,31 @@ export async function postQuery(
     throw new ApiError(response.status, await response.text());
   }
   return (await response.json()) as QueryResponse;
+}
+
+/**
+ * POST /translate — a reading aid for ONE quote, asked for explicitly.
+ *
+ * Deliberately not part of postQuery: an answer is verbatim spans and provenance, and that is
+ * what the audit row records. A translation is machine output #19 cannot validate, so it is
+ * fetched separately, shown beside the original, and labelled as what it is.
+ */
+export async function postTranslation(
+  body: TranslateRequest,
+  token: string,
+): Promise<TranslateResponse> {
+  const response = await fetch(`${API_URL}/translate`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new ApiError(response.status, await response.text());
+  }
+  return (await response.json()) as TranslateResponse;
 }

@@ -4,7 +4,7 @@ from fastapi import Depends, FastAPI, Response, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api import documents, erasure, queries
+from app.api import documents, erasure, queries, translation
 from app.core.auth import Clinician, current_clinician
 from app.core.config import get_settings
 from app.db.session import get_session, get_tenant_session
@@ -27,16 +27,20 @@ async def lifespan(app: FastAPI):
     """
     from app.services.embedding import E5Embedder
     from app.services.extractor_gemini import GeminiExtractor
+    from app.services.translation import GeminiTranslator
 
     embedder = E5Embedder()
     extractor = GeminiExtractor()
+    translator = GeminiTranslator()
     app.dependency_overrides[queries.get_embedder] = lambda: embedder
     app.dependency_overrides[queries.get_extractor] = lambda: extractor
+    app.dependency_overrides[translation.get_translator] = lambda: translator
     try:
         yield
     finally:
         app.dependency_overrides.pop(queries.get_embedder, None)
         app.dependency_overrides.pop(queries.get_extractor, None)
+        app.dependency_overrides.pop(translation.get_translator, None)
 
 
 app = FastAPI(
@@ -52,6 +56,7 @@ app = FastAPI(
 app.include_router(documents.router)
 app.include_router(queries.router)
 app.include_router(erasure.router)
+app.include_router(translation.router)
 
 
 @app.get("/health")

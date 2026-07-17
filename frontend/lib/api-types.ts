@@ -29,6 +29,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/documents/{version_id}/pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Stream a version's source PDF
+         * @description The original PDF a citation points at, so a clinician can verify us against the
+         *     source (#35). Verification a doctor will not actually perform is not verification, so
+         *     this exists to make it one click.
+         *
+         *     **Tenancy is the same one row-level security enforces everywhere, not a second copy of
+         *     it.** The file store is content-addressed by hash and has no notion of a clinic — two
+         *     clinics that upload the same bytes share one physical file. So access is decided at the
+         *     *row*, not the file: this reads the version under `get_tenant_session`, and RLS returns
+         *     it only if its document is visible (a published guideline with clinic_id NULL, or this
+         *     clinic's own upload). A version another clinic owns is filtered out and reads exactly
+         *     like one that does not exist — a 404 either way, so the endpoint never confirms that a
+         *     document exists in a clinic the caller cannot see.
+         *
+         *     The client passes a `version_id`, never a path or hash, so there is nothing to traverse;
+         *     the path served is the one the row already holds. `FileResponse` streams from disk and
+         *     honours Range requests, so a 100MB guideline never lands in memory and a PDF viewer can
+         *     fetch the pages it needs.
+         */
+        get: operations["get_version_pdf_documents__version_id__pdf_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/queries": {
         parameters: {
             query?: never;
@@ -72,6 +108,26 @@ export interface paths {
          *     call writes no second record.
          */
         delete: operations["erase_query_queries__query_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/translate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Post Translation
+         * @description A reading aid for one quote. Not an answer, not evidence, not audited as either.
+         */
+        post: operations["post_translation_translate_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -259,7 +315,7 @@ export interface components {
          * IssuingOrg
          * @enum {string}
          */
-        IssuingOrg: "ESC" | "AHA" | "ACC" | "WHO" | "NICE" | "ADA" | "EASD" | "ESMO" | "ASCO" | "IDSA" | "KDIGO" | "GINA";
+        IssuingOrg: "ESC" | "AHA" | "ACC" | "WHO" | "NICE" | "NHLBI" | "ADA" | "EASD" | "ESMO" | "ASCO" | "IDSA" | "KDIGO" | "GINA";
         /**
          * LegalBasis
          * @description Why an erasure was performed. An enum, and that is the security control.
@@ -348,6 +404,39 @@ export interface components {
             superseding_version_label?: string | null;
             /** Unreadable Pages */
             unreadable_pages?: number[];
+        };
+        /** TranslateRequest */
+        TranslateRequest: {
+            /** Quote */
+            quote: string;
+            /** Target Language */
+            target_language: string;
+        };
+        /**
+         * TranslateResponse
+         * @description Machine output, and the field names say so.
+         *
+         *     `text`, never `quote`: `Citation.quote` means "verbatim and validated" everywhere else in
+         *     this system. `is_machine_translation` is always true and exists so a UI cannot render this
+         *     without a field telling it what it is.
+         */
+        TranslateResponse: {
+            /** Source Quote */
+            source_quote: string;
+            /** Target Language */
+            target_language: string;
+            /** Text */
+            text: string;
+            /**
+             * Is Machine Translation
+             * @default true
+             */
+            is_machine_translation: boolean;
+            /**
+             * Is Verified
+             * @default false
+             */
+            is_verified: boolean;
         };
         /** ValidationError */
         ValidationError: {
@@ -453,6 +542,45 @@ export interface operations {
             };
         };
     };
+    get_version_pdf_documents__version_id__pdf_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The source PDF */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                    "application/pdf": unknown;
+                };
+            };
+            /** @description No such version, or not visible to this clinic */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     post_query_queries_post: {
         parameters: {
             query?: never;
@@ -508,6 +636,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErasureResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_translation_translate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TranslateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranslateResponse"];
                 };
             };
             /** @description Validation Error */

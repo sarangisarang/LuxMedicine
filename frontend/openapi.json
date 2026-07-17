@@ -57,6 +57,57 @@
         }
       }
     },
+    "/documents/{version_id}/pdf": {
+      "get": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Stream a version's source PDF",
+        "description": "The original PDF a citation points at, so a clinician can verify us against the\nsource (#35). Verification a doctor will not actually perform is not verification, so\nthis exists to make it one click.\n\n**Tenancy is the same one row-level security enforces everywhere, not a second copy of\nit.** The file store is content-addressed by hash and has no notion of a clinic \u2014 two\nclinics that upload the same bytes share one physical file. So access is decided at the\n*row*, not the file: this reads the version under `get_tenant_session`, and RLS returns\nit only if its document is visible (a published guideline with clinic_id NULL, or this\nclinic's own upload). A version another clinic owns is filtered out and reads exactly\nlike one that does not exist \u2014 a 404 either way, so the endpoint never confirms that a\ndocument exists in a clinic the caller cannot see.\n\nThe client passes a `version_id`, never a path or hash, so there is nothing to traverse;\nthe path served is the one the row already holds. `FileResponse` streams from disk and\nhonours Range requests, so a 100MB guideline never lands in memory and a PDF viewer can\nfetch the pages it needs.",
+        "operationId": "get_version_pdf_documents__version_id__pdf_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "version_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Version Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The source PDF",
+            "content": {
+              "application/json": {
+                "schema": {}
+              },
+              "application/pdf": {}
+            }
+          },
+          "404": {
+            "description": "No such version, or not visible to this clinic"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/queries": {
       "post": {
         "tags": [
@@ -161,6 +212,53 @@
             }
           }
         }
+      }
+    },
+    "/translate": {
+      "post": {
+        "tags": [
+          "translate"
+        ],
+        "summary": "Post Translation",
+        "description": "A reading aid for one quote. Not an answer, not evidence, not audited as either.",
+        "operationId": "post_translation_translate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TranslateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranslateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/health": {
@@ -473,6 +571,7 @@
           "ACC",
           "WHO",
           "NICE",
+          "NHLBI",
           "ADA",
           "EASD",
           "ESMO",
@@ -629,6 +728,62 @@
         ],
         "title": "SourceGroup",
         "description": "What one issuing organisation's guideline says, in its own words.\n\nGrouped by organisation so a clinician sees *whose* guidance they are reading before\nthey read it \u2014 and so #23 can tell whether a result set spans more than one body."
+      },
+      "TranslateRequest": {
+        "properties": {
+          "quote": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Quote"
+          },
+          "target_language": {
+            "type": "string",
+            "maxLength": 16,
+            "minLength": 2,
+            "title": "Target Language"
+          }
+        },
+        "type": "object",
+        "required": [
+          "quote",
+          "target_language"
+        ],
+        "title": "TranslateRequest"
+      },
+      "TranslateResponse": {
+        "properties": {
+          "source_quote": {
+            "type": "string",
+            "title": "Source Quote"
+          },
+          "target_language": {
+            "type": "string",
+            "title": "Target Language"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "is_machine_translation": {
+            "type": "boolean",
+            "title": "Is Machine Translation",
+            "default": true
+          },
+          "is_verified": {
+            "type": "boolean",
+            "title": "Is Verified",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_quote",
+          "target_language",
+          "text"
+        ],
+        "title": "TranslateResponse",
+        "description": "Machine output, and the field names say so.\n\n`text`, never `quote`: `Citation.quote` means \"verbatim and validated\" everywhere else in\nthis system. `is_machine_translation` is always true and exists so a UI cannot render this\nwithout a field telling it what it is."
       },
       "ValidationError": {
         "properties": {

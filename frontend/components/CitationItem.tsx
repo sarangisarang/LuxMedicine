@@ -1,6 +1,8 @@
 import type { Citation } from "@/lib/api";
 import { pageDisplay } from "@/lib/wording";
 
+import { QuoteTranslation } from "./QuoteTranslation";
+
 // One verbatim quote and its provenance. The quote is the ONLY clinical text in the whole
 // schema — rendered exactly, never truncated with an ellipsis or joined to another span
 // (two spans are two citations). Everything below the rule is provenance, not content.
@@ -37,6 +39,10 @@ export function CitationItem({
         )}
         {citation.section ? ` · ${citation.section}` : ""}
       </p>
+
+      {/* Below the quote and the provenance, never above: the guideline's words come first,
+          and a translation is a reading aid the clinician asks for. */}
+      <QuoteTranslation quote={citation.quote} />
     </li>
   );
 }
