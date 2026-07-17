@@ -168,14 +168,14 @@ questions:
     expect: answerable
     source: CDC US MEC 2024
     note: >
-      Wrongly_declined, and the aggregate hid it until 2026-07-17. Diagnosed, two causes, both
-      structural, neither cheap. (1) The answer lives in the eligibility table (p14 "Postpartum
-      (nonbreastfeeding) a. <21 days postpartum — — 1 2*"), whose sparse category-digit text
-      matches this natural-language query poorly and which is #48-class anyway. (2) Retrieval's
-      top-10 is ~9 bibliography entries (#50) whose paper titles carry "combined hormonal
-      contraceptive" — they out-rank the guidance. Removing references does NOT fix it (the
-      table answer still does not surface); it is #48 first. Left as answerable on purpose: it
-      is an honest wrongly_declined that should stay visible until #48's structural fix lands.
+      Wrongly_declined until #50 — and the fix corrected a wrong guess of mine. I first judged
+      this #48-class (answer only in a table) and claimed removing references would not help.
+      Wrong: that was measured with a weak ad-hoc detector. With the real detector excluding
+      bibliography (#50), retrieval surfaces the prose answer on p31 — "breastfeeding should
+      not use CHCs <21 days postpartum (U.S. MEC 4)... 21 to <30 days (U.S. MEC 3)... without
+      other risk factors for VTE generally can use CHCs" — the correct, complete VTE-timing
+      answer, self-describing prose. It was there all along, buried under ~9 citations whose
+      titles carried "combined hormonal contraceptive". Answers correctly now.
 
   - id: contraception-iud-timing
     text: When can an intrauterine device be inserted?
@@ -193,6 +193,13 @@ questions:
     expect: answerable
     source: CDC US MEC 2024
     tags: [cross-specialty]
+    note: >
+      The architectural point still holds and the outcome changed honestly. It answered from
+      marginal prose before #50; after excluding references, retrieval promotes the actual CKD
+      eligibility table, which is headerless, so the #48 guard declines it as table_not_citable.
+      That is not a specialty-filter failure — retrieval STILL finds the cross-domain CKD answer
+      in a contraception guideline, which is the whole point; it is #48-blocked, like every
+      table answer. Counts as wrongly_declined until #48's structural fix, and should.
 
   # --- #45 glyph corruption, where the answer lives in a table or threshold ------------
   #

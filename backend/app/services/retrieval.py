@@ -125,6 +125,8 @@ def _base_query(embedding: list[float], *, include_archived: bool) -> Select:
         .join(Document, DocumentVersion.document_id == Document.id)
         # PENDING is never included, in either mode: those chunks do not exist.
         .where(DocumentVersion.status.in_(statuses))
+        # A bibliography entry is not guidance and must not source an answer (#50).
+        .where(Chunk.is_reference.is_(False))
         .order_by(Chunk.embedding.cosine_distance(embedding))
     )
 
@@ -183,6 +185,7 @@ WITH searchable AS (
     FROM chunks c
     JOIN document_versions v ON c.document_version_id = v.id
     WHERE v.status = ANY(CAST(:statuses AS version_status[]))
+      AND NOT c.is_reference
 ),
 vector_hits AS (
     SELECT id, ROW_NUMBER() OVER (ORDER BY embedding <=> CAST(:query_vector AS vector)) AS rank

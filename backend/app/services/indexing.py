@@ -27,6 +27,7 @@ from app.models.document import DocumentVersion, VersionStatus
 from app.services import storage
 from app.services.chunking import chunk_document
 from app.services.embedding import Embedder
+from app.services.references import looks_like_reference
 from app.services.extraction import UNRESOLVED_GLYPH, extract_pdf
 
 # Rows per executemany. Vectors are 1024 floats each, so a whole guideline in one
@@ -137,6 +138,10 @@ async def index_version(
             "section": chunk.section,
             "content": chunk.text,
             "embedding": vector,
+            # A bibliography entry is embedded and stored like any other — a citation must
+            # still resolve to it — but flagged so retrieval never lets it source an answer
+            # (#50). Set here so every new document is clean; the backfill covers old ones.
+            "is_reference": looks_like_reference(chunk.text),
         }
         for chunk, vector in zip(chunks, vectors, strict=True)
     ]
