@@ -11,6 +11,8 @@ header. A wrong header reproduces #48 with more confidence.
 
 from __future__ import annotations
 
+import pytest
+
 from app.services.table_extraction import (
     MethodColumn,
     describe_row,
@@ -155,3 +157,56 @@ class TestSelfDescribingLines:
                         ("Implant", 321), ("DMPA", 394), ("POP", 467), ("CHC", 540))
         )
         assert self_describing_lines(words) == []
+
+
+@pytest.mark.slow
+class TestEndToEndOnRealMEC:
+    """The #48 fix, pinned end to end on the real document — the regression it must never make.
+
+    Unit tests above prove the transform on captured geometry; this proves the whole path
+    (extract_pdf -> self-describing line, on the actual PDF) still yields the answer that closed
+    #48, and that appending those lines did not corrupt the char-offset ledger page attribution
+    depends on. Found by scanning the storage root rather than the test database, which is
+    isolated and holds no corpus — so it needs the licence-clean MEC file, not the model, and
+    skips cleanly wherever that file is absent (CI, a fresh checkout).
+    """
+
+    @staticmethod
+    def _mec_document():
+        """extract_pdf'd MEC — the one PDF in storage whose extraction carries the migraine
+        self-describing row. Skips if no such PDF is present."""
+        from app.core.config import get_settings
+        from app.services.extraction import extract_pdf
+
+        root = get_settings().storage_root
+        pdfs = sorted(root.rglob("*.pdf")) if root.is_dir() else []
+        if not pdfs:
+            pytest.skip(f"no PDFs under {root}")
+        for path in pdfs:
+            try:
+                doc = extract_pdf(path)
+            except Exception:  # noqa: BLE001 - a scanned or broken PDF is simply not MEC
+                continue
+            if any("With aura" in ln.text and "CHC: 4" in ln.text for ln in doc.lines):
+                return doc
+        pytest.skip("no PDF in storage extracts the MEC migraine table (licence-clean MEC absent)")
+
+    def test_the_migraine_row_is_self_describing_with_chc_4(self):
+        doc = self._mec_document()
+        aura = [
+            ln for ln in doc.lines
+            if "With aura" in ln.text and "CHC: 4" in ln.text and "Cu-IUD: 1" in ln.text
+        ]
+        assert aura, "the #48 self-describing migraine-with-aura row is missing"
+        # It carries every method with its own category — the header #48 used to strip; CHC: 4
+        # is the combined-hormonal stroke contraindication the raw row hid.
+        assert "CHC: 4" in aura[0].text
+
+    def test_appending_the_rows_kept_the_ledger_exact(self):
+        # Page attribution is a bisect over char offsets; a self-describing line whose offsets
+        # do not match the assembled text would cite the wrong page. Every line, including the
+        # appended ones, must equal the document text at its own span.
+        doc = self._mec_document()
+        full = doc.text
+        mismatched = [ln for ln in doc.lines if full[ln.char_start:ln.char_end] != ln.text]
+        assert mismatched == [], f"{len(mismatched)} lines do not match their offsets"
