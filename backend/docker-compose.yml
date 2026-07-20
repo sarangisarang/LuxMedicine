@@ -65,6 +65,13 @@ services:
       OIDC_ISSUER: http://keycloak:8081/realms/luxmedicine
       OIDC_AUDIENCE: luxmedicine-api
       ENVIRONMENT: local
+      # #51: the admin service account that creates users at invite redemption. Inside the
+      # network Keycloak is keycloak:8081; the secret matches the confidential client in the
+      # realm import. Set these and /register works; unset and it 503s by design.
+      KEYCLOAK_BASE_URL: http://keycloak:8081
+      KEYCLOAK_REALM: luxmedicine
+      KEYCLOAK_ADMIN_CLIENT_ID: luxmedicine-admin
+      KEYCLOAK_ADMIN_CLIENT_SECRET: dev-admin-secret
     volumes:
       # The corpus. A bind mount, not a volume: these PDFs are the ones already ingested on
       # the host, and document_versions.storage_uri points at them by path.

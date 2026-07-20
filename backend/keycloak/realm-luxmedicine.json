@@ -33,6 +33,15 @@
           }
         }
       ]
+    },
+    {
+      "clientId": "luxmedicine-admin",
+      "enabled": true,
+      "publicClient": false,
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "secret": "dev-admin-secret"
     }
   ],
   "roles": {
@@ -54,6 +63,12 @@
       "attributes": { "clinic_id": ["clinic-demo"] },
       "realmRoles": ["clinic-admin"],
       "credentials": [{ "type": "password", "value": "dev-password", "temporary": false }]
+    },
+    {
+      "username": "service-account-luxmedicine-admin",
+      "enabled": true,
+      "serviceAccountClientId": "luxmedicine-admin",
+      "clientRoles": { "realm-management": ["manage-users", "view-realm"] }
     }
   ]
 }

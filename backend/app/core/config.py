@@ -88,6 +88,18 @@ class Settings(BaseSettings):
     # to us, and accepting it because configuring the mapper was tedious is the whole bug.
     oidc_audience: str = ""
 
+    # --- Keycloak Admin API, for creating users at invite redemption (#51) ---
+    #
+    # Registration acts as a confidential service account with `manage-users` — held
+    # server-side like the database credentials, never in the browser. Empty client_id means
+    # the path is not wired: get_identity_provider stays unwired and /register returns 503,
+    # which is the safe default until a real deployment sets these. base_url is the issuer's
+    # host as this service reaches it (inside compose, http://keycloak:8081).
+    keycloak_base_url: str = ""
+    keycloak_realm: str = "luxmedicine"
+    keycloak_admin_client_id: str = ""
+    keycloak_admin_client_secret: str = ""
+
     @model_validator(mode="after")
     def _identity_is_configured_outside_local(self) -> "Settings":
         """Fail at boot, not at request time.

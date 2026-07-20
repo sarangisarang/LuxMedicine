@@ -46,12 +46,29 @@ async def lifespan(app: FastAPI):
     app.dependency_overrides[queries.get_embedder] = lambda: embedder
     app.dependency_overrides[queries.get_extractor] = lambda: extractor
     app.dependency_overrides[translation.get_translator] = lambda: translator
+
+    # The registration path (#51) is wired only when a Keycloak admin service account is
+    # configured. Absent it, invites.get_identity_provider keeps raising and /register returns
+    # 503 — the safe default, so a deployment that has not set up the admin client cannot
+    # half-create users.
+    if settings.keycloak_admin_client_id:
+        from app.services.keycloak_identity import KeycloakIdentityProvider
+
+        identity_provider = KeycloakIdentityProvider(
+            base_url=settings.keycloak_base_url,
+            realm=settings.keycloak_realm,
+            client_id=settings.keycloak_admin_client_id,
+            client_secret=settings.keycloak_admin_client_secret,
+        )
+        app.dependency_overrides[invites.get_identity_provider] = lambda: identity_provider
+
     try:
         yield
     finally:
         app.dependency_overrides.pop(queries.get_embedder, None)
         app.dependency_overrides.pop(queries.get_extractor, None)
         app.dependency_overrides.pop(translation.get_translator, None)
+        app.dependency_overrides.pop(invites.get_identity_provider, None)
 
 
 app = FastAPI(
