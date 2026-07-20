@@ -1,0 +1,164 @@
+# Production stack for LuxMedicine (#deployment).
+#
+# Differences from backend/docker-compose.yml (which is for local dev) that matter:
+#   - Nothing but the reverse proxy publishes a port. db / keycloak / api / web all listen only
+#     on the internal network, reached through nginx, so the database and the identity provider
+#     are never exposed to the internet.
+#   - Keycloak runs in production mode (`start`, a real Postgres, a fixed public hostname behind
+#     the TLS-terminating proxy) instead of `start-dev` with ephemeral H2.
+#   - The API boots with ENVIRONMENT=production, which makes Settings REFUSE to start without a
+#     real issuer and audience, refuse the local LLM cache, and (via the extractor) refuse a
+#     non-EU inference endpoint — the guardrails that are advisory in dev and mandatory here.
+#   - Every secret comes from deploy/.env.prod (git-ignored), never from this file.
+#
+# Bring up:  docker compose --env-file deploy/.env.prod -f docker-compose.prod.yml up -d --build
+# TLS first run and DNS: see deploy/README.md — the certs must exist before nginx starts on 443.
+
+name: luxmedicine-prod
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  pgdata:
+  kcdata:
+  storage:
+  hf-cache:
+  certbot-webroot:
+  certbot-certs:
+
+services:
+  proxy:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on: [web, api, keycloak]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # The one place the domain is set; the nginx template substitutes it (LUX_ prefix only, so
+      # nginx's own $host/$remote_addr survive envsubst).
+      LUX_DOMAIN: ${LUX_DOMAIN}
+      NGINX_ENVSUBST_FILTER: "^LUX_"
+    volumes:
+      - ./deploy/nginx/templates:/etc/nginx/templates:ro
+      - certbot-certs:/etc/letsencrypt:ro
+      - certbot-webroot:/var/www/certbot:ro
+    networks: [internal]
+
+  certbot:
+    image: certbot/certbot:latest
+    restart: unless-stopped
+    # Renew twice a day; nginx picks up rotated certs on its periodic reload (see README for the
+    # reload cron, or restart the proxy after a renewal).
+    entrypoint: /bin/sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done'
+    volumes:
+      - certbot-certs:/etc/letsencrypt
+      - certbot-webroot:/var/www/certbot
+    networks: [internal]
+
+  db:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: luxmed
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: luxmedicine
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U luxmed -d luxmedicine"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [internal]
+
+  keycloak-db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      POSTGRES_DB: keycloak
+    volumes:
+      - kcdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [internal]
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    restart: unless-stopped
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    # `start`, not `start-dev`: production mode. --import-realm imports the realm on first boot
+    # only (the Postgres persists it after), so editing the realm later is done in the admin
+    # console or a re-import, not by editing this file.
+    command: ["start", "--import-realm", "--optimized"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak  # gitleaks:allow — a JDBC URL, no secret (password is ${KEYCLOAK_DB_PASSWORD})
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      # The public hostname the browser reaches Keycloak at; it is what lands in a token's `iss`,
+      # so the API's OIDC_ISSUER below must match it exactly.
+      KC_HOSTNAME: https://auth.${LUX_DOMAIN}
+      # TLS is terminated at nginx; Keycloak trusts the forwarded proto/host headers and serves
+      # plain HTTP on the internal network.
+      KC_PROXY_HEADERS: xforwarded
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USERNAME}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+    volumes:
+      - ./backend/keycloak/realm-luxmedicine.json:/opt/keycloak/data/import/realm-luxmedicine.json:ro
+    networks: [internal]
+
+  api:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: postgresql+asyncpg://luxmed:${POSTGRES_PASSWORD}@db:5432/luxmedicine
+      # Token validation: the issuer is Keycloak's PUBLIC url (matches a browser token's iss).
+      OIDC_ISSUER: https://auth.${LUX_DOMAIN}/realms/luxmedicine
+      OIDC_AUDIENCE: luxmedicine-api
+      # Admin API (server-to-server) uses the INTERNAL address — no issuer check involved.
+      KEYCLOAK_BASE_URL: http://keycloak:8080
+      KEYCLOAK_REALM: luxmedicine
+      KEYCLOAK_ADMIN_CLIENT_ID: luxmedicine-admin
+      KEYCLOAK_ADMIN_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET}
+      # EU data residency: the extractor refuses a non-EU endpoint outside ENVIRONMENT=local, so
+      # these must point at Vertex in an EU region. Fill from the GCP project (see .env.prod).
+      GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT}
+      GOOGLE_CLOUD_LOCATION: ${GOOGLE_CLOUD_LOCATION}
+      GEMINI_MODEL: ${GEMINI_MODEL}
+    volumes:
+      # The corpus PDFs. Must be present on the host and match document_versions.storage_uri.
+      - storage:/app/storage
+      - hf-cache:/root/.cache/huggingface
+    networks: [internal]
+
+  web:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on: [api]
+    environment:
+      # Server-side only: the Next route handlers reach the API over the internal network; the
+      # browser talks to this app, never straight to the API.
+      NEXT_PUBLIC_API_URL: http://api:8000
+      # For the current dev token bridge AND the real login flow that will replace it, the token
+      # endpoint is Keycloak's PUBLIC url so issuers line up. See README — the frontend still
+      # needs a per-user OIDC login before this is a real multi-user deployment.
+      KEYCLOAK_TOKEN_URL: https://auth.${LUX_DOMAIN}/realms/luxmedicine/protocol/openid-connect/token
+    networks: [internal]

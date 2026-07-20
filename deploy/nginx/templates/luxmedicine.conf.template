@@ -1,0 +1,91 @@
+# Reverse proxy + TLS for the three faces of LuxMedicine. ${LUX_DOMAIN} is substituted from the
+# proxy container's environment (the nginx image runs envsubst over *.template; only LUX_-prefixed
+# vars are substituted — see NGINX_ENVSUBST_FILTER — so nginx's own $host / $remote_addr survive).
+#
+# One SAN certificate covers all three names; its files live under the base domain's directory.
+# See deploy/README.md for issuing it before this file is served on 443.
+
+# --- HTTP: ACME challenge, then force HTTPS --------------------------------------------------
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${LUX_DOMAIN} api.${LUX_DOMAIN} auth.${LUX_DOMAIN};
+
+    # Let's Encrypt's webroot challenge is the only thing served over plain HTTP.
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# Shared TLS + proxy settings, kept in one place so the three servers cannot drift apart.
+ssl_certificate     /etc/letsencrypt/live/${LUX_DOMAIN}/fullchain.pem;
+ssl_certificate_key /etc/letsencrypt/live/${LUX_DOMAIN}/privkey.pem;
+ssl_protocols TLSv1.2 TLSv1.3;
+ssl_prefer_server_ciphers off;
+
+# Forward the real client + the fact that TLS was terminated here — the API and Keycloak both
+# reconstruct the public URL from these, and Keycloak (KC_PROXY_HEADERS=xforwarded) refuses to
+# trust them from anywhere but a proxy.
+proxy_http_version 1.1;
+proxy_set_header Host $host;
+proxy_set_header X-Real-IP $remote_addr;
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+proxy_set_header X-Forwarded-Proto $scheme;
+proxy_set_header X-Forwarded-Host $host;
+
+# --- The application (the browser talks only to this and to auth) ---------------------------
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name ${LUX_DOMAIN};
+
+    # A clinical app over TLS only: tell browsers never to try HTTP again.
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options DENY always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
+
+    client_max_body_size 100m;
+
+    location / {
+        proxy_pass http://web:3000;
+    }
+}
+
+# --- The API (server-to-server from web; optionally reachable for tooling) -------------------
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name api.${LUX_DOMAIN};
+
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    # Guideline PDFs are large; let an upload through.
+    client_max_body_size 100m;
+
+    location / {
+        proxy_pass http://api:8000;
+    }
+}
+
+# --- Keycloak (the browser reaches this for login; the API for JWKS) -------------------------
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name auth.${LUX_DOMAIN};
+
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    location / {
+        proxy_pass http://keycloak:8080;
+        # Keycloak sets large headers (tokens in cookies during login); give it room.
+        proxy_buffer_size 16k;
+        proxy_buffers 8 16k;
+    }
+}

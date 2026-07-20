@@ -19,3 +19,6 @@ node_modules/
 # Real guideline PDFs, fetched for #41. Multi-megabyte and licensed to their
 # publishers — the tests that need them skip when absent.
 storage/
+
+# Production secrets — never commit
+deploy/.env.prod
