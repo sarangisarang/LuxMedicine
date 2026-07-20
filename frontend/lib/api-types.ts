@@ -133,6 +133,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/invites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mint Invite
+         * @description Mint an invite for the admin's own clinic. The raw code is in the response once.
+         */
+        post: operations["mint_invite_invites_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Register
+         * @description Redeem an invite and create the account it grants. Unauthenticated by necessity — the
+         *     code is the gate. Every failure rolls the transaction back, so a code is never spent unless
+         *     the account was actually made.
+         */
+        post: operations["register_register_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -311,6 +353,30 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** InviteRequest */
+        InviteRequest: {
+            /** Role */
+            role?: string | null;
+            /**
+             * Ttl Hours
+             * @default 72
+             */
+            ttl_hours: number;
+        };
+        /** InviteResponse */
+        InviteResponse: {
+            /** Code */
+            code: string;
+            /** Clinic Id */
+            clinic_id: string;
+            /** Role */
+            role: string | null;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+        };
         /**
          * IssuingOrg
          * @enum {string}
@@ -375,6 +441,24 @@ export interface components {
             /** Actor Id */
             actor_id: string;
             answer: components["schemas"]["AnswerPayload"];
+        };
+        /** RegisterRequest */
+        RegisterRequest: {
+            /** Code */
+            code: string;
+            /** Username */
+            username: string;
+            /** Email */
+            email: string;
+            /** Password */
+            password: string;
+            /** Name */
+            name?: string | null;
+        };
+        /** RegisterResponse */
+        RegisterResponse: {
+            /** User Id */
+            user_id: string;
         };
         /**
          * SourceGroup
@@ -669,6 +753,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TranslateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mint_invite_invites_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InviteRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    register_register_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegisterResponse"];
                 };
             };
             /** @description Validation Error */

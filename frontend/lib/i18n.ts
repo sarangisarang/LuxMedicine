@@ -49,6 +49,24 @@ type Strings = {
     server: string;
     request: (detail: string) => string;
   };
+  register: {
+    heading: string;
+    intro: string;
+    code: string;
+    codeHint: string;
+    email: string;
+    password: string;
+    name: string;
+    submit: string;
+    submitting: string;
+    success: string;
+    errors: {
+      code: string;
+      username: string;
+      validation: string;
+      server: string;
+    };
+  };
   rejected: (n: number) => string;
   superseded: (label: string | null) => string;
   unreadable: (pages: string) => string;
@@ -103,6 +121,24 @@ export const STRINGS: Record<UiLang, Strings> = {
       auth: "Your session could not be authenticated. Sign in again, or check that the login service is running.",
       server: "The server did not respond. It may be starting up or down — wait a moment and try again.",
       request: (detail) => `The request could not be processed: ${detail}`,
+    },
+    register: {
+      heading: "Create your account",
+      intro: "Registration is by invitation. Enter the code your clinic administrator gave you, and it will place you in your clinic.",
+      code: "Invite code",
+      codeHint: "Required. It decides which clinic your account belongs to.",
+      email: "Email",
+      password: "Password",
+      name: "Name (optional)",
+      submit: "Create account",
+      submitting: "Creating…",
+      success: "Your account is ready. You can now sign in with your username and password.",
+      errors: {
+        code: "That invite code is invalid or has expired. Check it with your clinic administrator.",
+        username: "That username is already taken. Choose another.",
+        validation: "Please check the form — an email and a code are required.",
+        server: "Registration could not be completed right now. Please try again in a moment.",
+      },
     },
     rejected: (n) =>
       `${n} quote${n === 1 ? " was" : "s were"} rejected as unverifiable and ${n === 1 ? "is" : "are"} not shown.`,
@@ -161,6 +197,25 @@ export const STRINGS: Record<UiLang, Strings> = {
       server: "Der Server hat nicht geantwortet. Er startet möglicherweise gerade oder ist nicht erreichbar — warten Sie einen Moment und versuchen Sie es erneut.",
       request: (detail) => `Die Anfrage konnte nicht verarbeitet werden: ${detail}`,
     },
+    // TODO(review): clinician-facing German — have a native speaker check before deploy.
+    register: {
+      heading: "Konto erstellen",
+      intro: "Die Registrierung erfolgt auf Einladung. Geben Sie den Code Ihrer Klinikadministration ein — er ordnet Sie Ihrer Klinik zu.",
+      code: "Einladungscode",
+      codeHint: "Erforderlich. Er bestimmt, zu welcher Klinik Ihr Konto gehört.",
+      email: "E-Mail",
+      password: "Passwort",
+      name: "Name (optional)",
+      submit: "Konto erstellen",
+      submitting: "Wird erstellt…",
+      success: "Ihr Konto ist bereit. Sie können sich jetzt mit Ihrem Benutzernamen und Passwort anmelden.",
+      errors: {
+        code: "Dieser Einladungscode ist ungültig oder abgelaufen. Prüfen Sie ihn mit Ihrer Klinikadministration.",
+        username: "Dieser Benutzername ist bereits vergeben. Wählen Sie einen anderen.",
+        validation: "Bitte prüfen Sie das Formular — eine E-Mail und ein Code sind erforderlich.",
+        server: "Die Registrierung konnte gerade nicht abgeschlossen werden. Bitte versuchen Sie es gleich erneut.",
+      },
+    },
     rejected: (n) =>
       `${n} Zitat${n === 1 ? "" : "e"} wurde${n === 1 ? "" : "n"} als nicht überprüfbar verworfen und ${n === 1 ? "wird" : "werden"} nicht angezeigt.`,
     superseded: (label) =>
@@ -218,6 +273,24 @@ export const STRINGS: Record<UiLang, Strings> = {
       auth: "სესია ვერ დამოწმდა. თავიდან შედი, ან შეამოწმე, მუშაობს თუ არა ავტორიზაციის სერვისი.",
       server: "სერვერმა არ უპასუხა. შესაძლოა ეშვება ან გამორთულია — მოიცადე წამით და თავიდან სცადე.",
       request: (detail) => `მოთხოვნა ვერ დამუშავდა: ${detail}`,
+    },
+    register: {
+      heading: "შექმენი ანგარიში",
+      intro: "რეგისტრაცია მოსაწვევითაა. შეიყვანე კოდი, რომელიც კლინიკის ადმინისტრატორმა მოგცა — ის შენს კლინიკაში მოგათავსებს.",
+      code: "მოსაწვევი კოდი",
+      codeHint: "სავალდებულო. ის განსაზღვრავს, რომელ კლინიკას ეკუთვნის შენი ანგარიში.",
+      email: "ელფოსტა",
+      password: "პაროლი",
+      name: "სახელი (არასავალდებულო)",
+      submit: "ანგარიშის შექმნა",
+      submitting: "იქმნება…",
+      success: "შენი ანგარიში მზადაა. ახლა შეგიძლია შეხვიდე მომხმარებლის სახელითა და პაროლით.",
+      errors: {
+        code: "ეს მოსაწვევი კოდი არასწორია ან ვადაგასულია. გადაამოწმე კლინიკის ადმინისტრატორთან.",
+        username: "ეს მომხმარებლის სახელი დაკავებულია. აირჩიე სხვა.",
+        validation: "შეამოწმე ფორმა — ელფოსტა და კოდი სავალდებულოა.",
+        server: "რეგისტრაცია ახლა ვერ დასრულდა. სცადე ცოტა ხანში.",
+      },
     },
     rejected: (n) => `${n} ციტატა უარყოფილია როგორც გადაუმოწმებელი და არ ჩვენდება.`,
     superseded: (label) =>

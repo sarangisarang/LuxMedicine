@@ -16,6 +16,8 @@ export type SourceGroup = components["schemas"]["SourceGroup"];
 export type Citation = components["schemas"]["Citation"];
 export type ConflictFinding = components["schemas"]["ConflictFinding"];
 export type NoAnswerReason = components["schemas"]["NoAnswerReason"];
+export type RegisterRequest = components["schemas"]["RegisterRequest"];
+export type RegisterResponse = components["schemas"]["RegisterResponse"];
 
 export class ApiError extends Error {
   constructor(
@@ -79,4 +81,26 @@ export async function postTranslation(
     throw new ApiError(response.status, await response.text());
   }
   return (await response.json()) as TranslateResponse;
+}
+
+/**
+ * POST /register — redeem an invite and create the account it grants.
+ *
+ * The one backend call made with NO token: a newcomer has no account yet, so the invite code is
+ * the gate. Errors carry through with their status so the page can tell a bad code (400) from a
+ * taken username (409) from a provider outage (502/503) — the same "say which failure" discipline
+ * as a query.
+ */
+export async function postRegister(body: RegisterRequest): Promise<RegisterResponse> {
+  const response = await fetch(`${API_URL}/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new ApiError(response.status, await response.text());
+  }
+  return (await response.json()) as RegisterResponse;
 }
