@@ -32,6 +32,7 @@ type Strings = {
   placeholder: string;
   ask: string;
   searching: string;
+  signOut: string;
   noAnswer: {
     no_relevant_sources: string;
     sources_do_not_answer: string;
@@ -103,6 +104,7 @@ export const STRINGS: Record<UiLang, Strings> = {
     placeholder: "e.g. How is chronic kidney disease classified by GFR?",
     ask: "Ask",
     searching: "Searching…",
+    signOut: "Sign out",
     noAnswer: {
       no_relevant_sources: "No guideline in the corpus covers this question.",
       sources_do_not_answer:
@@ -177,6 +179,7 @@ export const STRINGS: Record<UiLang, Strings> = {
     placeholder: "z. B. Wie wird eine chronische Nierenerkrankung nach GFR eingeteilt?",
     ask: "Fragen",
     searching: "Suche läuft…",
+    signOut: "Abmelden",
     noAnswer: {
       no_relevant_sources: "Keine Leitlinie im Bestand behandelt diese Frage.",
       sources_do_not_answer:
@@ -258,6 +261,7 @@ export const STRINGS: Record<UiLang, Strings> = {
     placeholder: "მაგ. როგორ კლასიფიცირდება თირკმლის ქრონიკული დაავადება GFR-ით?",
     ask: "კითხვა",
     searching: "მიმდინარეობს ძიება…",
+    signOut: "გასვლა",
     noAnswer: {
       no_relevant_sources: "კორპუსში არცერთი გაიდლაინი არ ეხება ამ კითხვას.",
       sources_do_not_answer:

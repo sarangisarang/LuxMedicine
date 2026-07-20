@@ -42,6 +42,46 @@
       "standardFlowEnabled": false,
       "directAccessGrantsEnabled": false,
       "secret": "dev-admin-secret"
+    },
+    {
+      "clientId": "luxmedicine-web",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "dev-web-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "http://localhost:3000/auth/callback"
+      ],
+      "webOrigins": [
+        "http://localhost:3000"
+      ],
+      "attributes": {
+        "post.logout.redirect.uris": "http://localhost:3000/+"
+      },
+      "protocolMappers": [
+        {
+          "name": "luxmedicine-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "luxmedicine-api",
+            "access.token.claim": "true"
+          }
+        },
+        {
+          "name": "luxmedicine-clinic-id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "clinic_id",
+            "claim.name": "clinic_id",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
     }
   ],
   "roles": {

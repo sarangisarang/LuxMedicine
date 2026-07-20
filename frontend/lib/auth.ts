@@ -1,59 +1,70 @@
 import "server-only";
 
+import { cookies } from "next/headers";
+import * as client from "openid-client";
+
+import { APP_BASE_URL } from "./config";
 import {
-  DEV_CLIENT_ID,
-  DEV_PASSWORD,
-  DEV_USERNAME,
-  KEYCLOAK_TOKEN_URL,
-} from "./config";
+  getOidcConfig,
+  seal,
+  SESSION_COOKIE,
+  SESSION_MAX_AGE_SECONDS,
+  unseal,
+  type Session,
+} from "./oidc";
 
-// The local-dev token bridge — the browser equivalent of backend/scripts/dev_token.py.
+// The per-user access token, from the encrypted session cookie set at login (app/auth/callback).
 //
-// `import "server-only"` makes this module a build error if it is ever imported into a
-// client component, so the dev credentials and the raw token can never be bundled into the
-// browser. The token is fetched here, on the server, and only the answer crosses to the
-// client.
-//
-// This is NOT an auth bypass: it obtains a genuine RS256 token from the real issuer via the
-// password grant the dev realm enables (backend/keycloak/realm-luxmedicine.json). The token
-// carries a real `sub` and `clinic_id`, so the frontend exercises the same verification and
-// row-level-security path production will. Swapping this for a proper OIDC login flow is a
-// change to this one file.
+// This replaces the old dev password grant that logged everyone in as dr.smith. The token is a
+// real per-user RS256 token carrying that clinician's `sub` and `clinic_id`, so the API's
+// verification and row-level security apply per user — the whole point of the OIDC flow. It never
+// crosses to the browser: read server-side, passed straight to the backend.
 
-let cached: { token: string; expiresAt: number } | null = null;
+// Thrown when there is no usable session — the route handlers translate it to an auth error, and
+// middleware redirects a page load to /auth/login before it gets this far.
+export class NotAuthenticated extends Error {}
+
+function cookieOptions() {
+  return {
+    httpOnly: true,
+    secure: APP_BASE_URL.startsWith("https"),
+    sameSite: "lax" as const,
+    path: "/",
+    maxAge: SESSION_MAX_AGE_SECONDS,
+  };
+}
 
 export async function getAccessToken(): Promise<string> {
-  // Tokens live 900s (realm accessTokenLifespan); reuse within a 60s safety margin.
-  if (cached && Date.now() < cached.expiresAt - 60_000) {
-    return cached.token;
+  const store = await cookies();
+  const session = await unseal<Session>(store.get(SESSION_COOKIE)?.value);
+  if (!session) {
+    throw new NotAuthenticated("no session — sign in");
   }
 
-  const response = await fetch(KEYCLOAK_TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "password",
-      client_id: DEV_CLIENT_ID,
-      username: DEV_USERNAME,
-      password: DEV_PASSWORD,
-    }),
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    throw new Error(
-      `could not get a dev token from Keycloak (${response.status}). ` +
-        "Is `docker compose up keycloak` running in backend/?",
-    );
+  // Still valid, with a 60s safety margin against clock skew and in-flight requests.
+  if (Date.now() < session.expires_at - 60_000) {
+    return session.access_token;
   }
 
-  const data = (await response.json()) as {
-    access_token: string;
-    expires_in: number;
+  // Expired: refresh silently and re-seal the cookie, so a clinician mid-shift is never bounced to
+  // the login page just because 15 minutes passed.
+  if (!session.refresh_token) {
+    throw new NotAuthenticated("session expired");
+  }
+  let refreshed;
+  try {
+    refreshed = await client.refreshTokenGrant(await getOidcConfig(), session.refresh_token);
+  } catch {
+    // The refresh token is spent or revoked — a real re-login is required.
+    throw new NotAuthenticated("refresh failed");
+  }
+
+  const next: Session = {
+    access_token: refreshed.access_token,
+    refresh_token: refreshed.refresh_token ?? session.refresh_token,
+    id_token: refreshed.id_token ?? session.id_token,
+    expires_at: Date.now() + (refreshed.expires_in ?? 300) * 1000,
   };
-  cached = {
-    token: data.access_token,
-    expiresAt: Date.now() + data.expires_in * 1000,
-  };
-  return cached.token;
+  store.set(SESSION_COOKIE, await seal({ ...next }, SESSION_MAX_AGE_SECONDS), cookieOptions());
+  return next.access_token;
 }

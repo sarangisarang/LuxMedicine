@@ -157,8 +157,18 @@ services:
       # Server-side only: the Next route handlers reach the API over the internal network; the
       # browser talks to this app, never straight to the API.
       NEXT_PUBLIC_API_URL: http://api:8000
-      # For the current dev token bridge AND the real login flow that will replace it, the token
-      # endpoint is Keycloak's PUBLIC url so issuers line up. See README — the frontend still
-      # needs a per-user OIDC login before this is a real multi-user deployment.
-      KEYCLOAK_TOKEN_URL: https://auth.${LUX_DOMAIN}/realms/luxmedicine/protocol/openid-connect/token
+      # Real per-user login (OIDC Authorization Code, BFF pattern). The issuer is Keycloak's PUBLIC
+      # url: the browser follows the login redirect there AND this server discovers + exchanges
+      # tokens there, so the two agree and the token `iss` validates. KC_HOSTNAME on the keycloak
+      # service makes that one hostname work from both sides — the dev localhost/keycloak split
+      # that blocks the in-container flow locally does not exist here.
+      OIDC_ISSUER: https://auth.${LUX_DOMAIN}/realms/luxmedicine
+      OIDC_CLIENT_ID: luxmedicine-web
+      # Confidential-client secret and the session-cookie encryption passphrase. Both are real
+      # random values from deploy/.env.prod — never the committed dev defaults.
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
+      SESSION_SECRET: ${SESSION_SECRET}
+      # Where the browser reaches this app — the base for the redirect_uri and post-logout uri,
+      # which must exactly match the luxmedicine-web client's allowed URIs in Keycloak.
+      APP_BASE_URL: https://${LUX_DOMAIN}
     networks: [internal]

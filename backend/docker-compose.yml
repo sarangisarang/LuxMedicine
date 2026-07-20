@@ -90,17 +90,30 @@ services:
         # not need the issuer to be up before it can boot.
         condition: service_started
 
+  # NOT the way to run the frontend in dev — run `npm run dev` in ../frontend on the host instead.
+  # The per-user login is now a browser OIDC redirect (BFF, see frontend/app/auth), and the dev
+  # localhost/keycloak split makes it unworkable in-container: the browser can only reach Keycloak
+  # at localhost:8081, but this container's localhost is itself, so it cannot discover or exchange
+  # there — and pointing it at keycloak:8081 instead would redirect the browser to a host it cannot
+  # reach. On the host both sides agree on localhost:8081, so login → token works (verified E2E).
+  # The remaining token → query hop is gated by the same split the api service documents above
+  # (api validates iss=keycloak:8081; a host login mints iss=localhost:8081); prod KC_HOSTNAME
+  # collapses all three to one hostname and the full round-trip works — see docker-compose.prod.yml.
+  # Kept here so the prod image still builds and for a future hosts-alias setup; env mirrors the
+  # host dev defaults.
   web:
     build: ../frontend
     container_name: luxmedicine-web
+    profiles: ["full"]
     environment:
       # Server-side only. The browser talks to this app; this app talks to the API — which
       # is why no CORS is opened anywhere and the token never reaches the browser.
       NEXT_PUBLIC_API_URL: http://api:8000
-      KEYCLOAK_TOKEN_URL: http://keycloak:8081/realms/luxmedicine/protocol/openid-connect/token
-      DEV_CLIENT_ID: luxmedicine-api
-      DEV_USERNAME: dr.smith
-      DEV_PASSWORD: dev-password
+      OIDC_ISSUER: http://localhost:8081/realms/luxmedicine
+      OIDC_CLIENT_ID: luxmedicine-web
+      OIDC_CLIENT_SECRET: dev-web-secret
+      APP_BASE_URL: http://localhost:3000
+      SESSION_SECRET: dev-session-secret-change-me-in-production
     ports:
       - "3000:3000"
     depends_on:

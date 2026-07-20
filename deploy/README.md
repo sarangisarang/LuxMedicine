@@ -7,20 +7,21 @@ frontend, the API, and Keycloak; everything else stays on the internal Docker ne
 - `nginx/templates/luxmedicine.conf.template` — the reverse proxy + TLS config.
 - `.env.prod.example` — copy to `.env.prod` (git-ignored) and fill in.
 
-## Two prerequisites that are CODE, not infrastructure — read first
+## One prerequisite that is CODE, not infrastructure — read first
 
-This infra is ready, but the product is not fully deployable until two code gaps close. Neither is
-this directory's job to fix; both are flagged so the deployment is not stood up on a false floor.
+This infra is ready, but the product is not fully deployable until the code gap below closes. It is
+not this directory's job to fix; it is flagged so the deployment is not stood up on a false floor.
 
-1. **The frontend has no per-user login.** `frontend/lib/auth.ts` obtains ONE token with the dev
-   password grant (dr.smith), for every request. Deployed as-is, every visitor acts as dr.smith in
-   dr.smith's clinic — the #51 registration would create real users who then cannot sign in as
-   themselves. The frontend needs a real OIDC Authorization-Code login (redirect to
-   `auth.<domain>`, callback, per-user session). Its own docstring says this is "a change to this
-   one file"; the reverse proxy here already exposes Keycloak for exactly that redirect, so no
-   infra change is needed when it lands.
+Resolved since this note was first written: **the frontend now has real per-user login.**
+`frontend/lib/auth.ts` reads a per-user session established by the OIDC Authorization-Code flow
+(`frontend/app/auth/{login,callback,logout}`, BFF pattern — tokens live in an encrypted HTTP-only
+cookie, never in the browser). The old dev password grant that logged everyone in as dr.smith is
+gone. The compose `web` service threads through `OIDC_ISSUER` (= `https://auth.<domain>/...`),
+`OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `SESSION_SECRET`, and `APP_BASE_URL`; the confidential
+`luxmedicine-web` client is in the realm import with strict redirect URIs. Verified end to end
+against a live Keycloak (login → token → per-user `clinic_id` claim).
 
-2. **The extractor still calls the Gemini API, not Vertex.** `ENVIRONMENT=production` makes the API
+1. **The extractor still calls the Gemini API, not Vertex.** `ENVIRONMENT=production` makes the API
    refuse a non-EU inference endpoint, so it will not even boot against the public Gemini API. The
    EU-residency path is Vertex AI in an EU region (`europe-west3`), which needs the extractor
    switched to the Vertex client and Google credentials mounted. The env vars are already threaded
@@ -37,7 +38,9 @@ Point A/AAAA records at the server for all three names:
 
 ### 2. Secrets
     cp deploy/.env.prod.example deploy/.env.prod
-    # fill every blank; generate long random values for the passwords and the client secret.
+    # fill every blank; generate long random values for the passwords, the client secrets
+    # (KEYCLOAK_ADMIN_CLIENT_SECRET, OIDC_CLIENT_SECRET), and SESSION_SECRET. The two *_CLIENT_SECRET
+    # values must also be set on their clients in Keycloak after the realm import (see each note).
 
 ### 3. TLS certificate (before nginx serves 443)
 nginx will not start with the 443 servers until the certificate exists, so issue it first with a
@@ -74,8 +77,9 @@ luxmedicine-admin → Credentials) set a real secret, put the SAME value in
 - `https://<domain>` serves the app; `https://auth.<domain>` serves the Keycloak login.
 - A token minted at `auth.<domain>` carries `iss=https://auth.<domain>/realms/luxmedicine`, which
   is exactly the API's `OIDC_ISSUER` — a mismatch here is the #1 cause of every request 401'ing.
-- Registration end to end (once the frontend login lands): a clinic-admin mints an invite, a
-  newcomer redeems it at `/register`, and logs in with their own `clinic_id` in the token.
+- Registration end to end: a clinic-admin mints an invite, a newcomer redeems it at `/register`,
+  then signs in through `https://<domain>` → `auth.<domain>` and lands with their own `clinic_id`
+  in the token. Signing out (`/auth/logout`) ends the Keycloak session too, not just the cookie.
 
 ## Notes
 

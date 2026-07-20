@@ -66,7 +66,14 @@ export default function Home() {
       <div className="flex min-h-screen">
         <main className="flex-1 px-6 py-12">
           <div className="mx-auto max-w-3xl">
-            <h1 className="text-xl font-semibold tracking-tight">LuxMedicine</h1>
+            <div className="flex items-baseline justify-between">
+              <h1 className="text-xl font-semibold tracking-tight">LuxMedicine</h1>
+              {/* A full server round-trip, not a client call: /auth/logout ends the Keycloak
+                  session too, so signing out is a real logout, not a dropped cookie. */}
+              <a href="/auth/logout" className="text-xs text-neutral-500 underline">
+                {t.signOut}
+              </a>
+            </div>
             <p className="mt-1 text-sm text-neutral-500">{t.tagline}</p>
 
             <form onSubmit={ask} className="mt-8 space-y-3">
