@@ -5,10 +5,11 @@ import { APP_BASE_URL } from "@/lib/config";
 import {
   getOidcConfig,
   seal,
-  SESSION_COOKIE,
+  sessionCookieOptions,
   SESSION_MAX_AGE_SECONDS,
   TX_COOKIE,
   unseal,
+  writeSessionCookies,
   type LoginTx,
   type Session,
 } from "@/lib/oidc";
@@ -49,13 +50,13 @@ export async function GET(request: NextRequest) {
   };
 
   const response = NextResponse.redirect(APP_BASE_URL);
-  response.cookies.set(SESSION_COOKIE, await seal({ ...session }, SESSION_MAX_AGE_SECONDS), {
-    httpOnly: true,
-    secure: APP_BASE_URL.startsWith("https"),
-    sameSite: "lax",
-    path: "/",
-    maxAge: SESSION_MAX_AGE_SECONDS,
-  });
+  const sealed = await seal({ ...session }, SESSION_MAX_AGE_SECONDS);
+  const opts = sessionCookieOptions(APP_BASE_URL.startsWith("https"));
+  writeSessionCookies(
+    (name, value) => response.cookies.set(name, value, opts),
+    (name) => response.cookies.delete(name),
+    sealed,
+  );
   response.cookies.delete(TX_COOKIE); // one-time secrets, spent
   return response;
 }

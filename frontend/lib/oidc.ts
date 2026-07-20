@@ -94,3 +94,56 @@ export async function unseal<T>(token: string | undefined): Promise<T | null> {
     return null;
   }
 }
+
+// The sealed session holds three JWTs (access + refresh + id) and runs ~4.8 KB — over the browser's
+// hard ~4 KB per-cookie limit, which browsers enforce by SILENTLY DROPPING the cookie. The login
+// then loops: the callback sets a cookie the browser discards, every page sees no session, and it
+// bounces back to /auth/login. So the session is split across numbered cookies (lux_session.0,
+// lux_session.1, …), each safely under the limit, and reassembled on read. (httpx has no such
+// limit, which is why the flow passed every scripted test and only failed in a real browser.)
+const CHUNK_SIZE = 3500;
+const MAX_CHUNKS = 8;
+
+export const SESSION_COOKIE_FIRST = `${SESSION_COOKIE}.0`;
+
+export function sessionCookieOptions(secure: boolean) {
+  return {
+    httpOnly: true,
+    secure,
+    sameSite: "lax" as const,
+    path: "/",
+    maxAge: SESSION_MAX_AGE_SECONDS,
+  };
+}
+
+// Split `sealed` into lux_session.0..N and clear any higher-index chunks a previous, larger session
+// left behind (so shrinking the session never leaves a stale tail that corrupts the next read).
+export function writeSessionCookies(
+  set: (name: string, value: string) => void,
+  del: (name: string) => void,
+  sealed: string,
+): void {
+  const chunks: string[] = [];
+  for (let i = 0; i < sealed.length; i += CHUNK_SIZE) {
+    chunks.push(sealed.slice(i, i + CHUNK_SIZE));
+  }
+  chunks.forEach((chunk, i) => set(`${SESSION_COOKIE}.${i}`, chunk));
+  for (let i = chunks.length; i < MAX_CHUNKS; i++) del(`${SESSION_COOKIE}.${i}`);
+}
+
+// Reassemble the sealed session from its chunks (in order, stopping at the first gap).
+export function readSessionCookie(
+  get: (name: string) => string | undefined,
+): string | undefined {
+  const parts: string[] = [];
+  for (let i = 0; i < MAX_CHUNKS; i++) {
+    const value = get(`${SESSION_COOKIE}.${i}`);
+    if (value === undefined) break;
+    parts.push(value);
+  }
+  return parts.length ? parts.join("") : undefined;
+}
+
+export function clearSessionCookies(del: (name: string) => void): void {
+  for (let i = 0; i < MAX_CHUNKS; i++) del(`${SESSION_COOKIE}.${i}`);
+}

@@ -6,10 +6,12 @@ import * as client from "openid-client";
 import { APP_BASE_URL } from "./config";
 import {
   getOidcConfig,
+  readSessionCookie,
   seal,
-  SESSION_COOKIE,
+  sessionCookieOptions,
   SESSION_MAX_AGE_SECONDS,
   unseal,
+  writeSessionCookies,
   type Session,
 } from "./oidc";
 
@@ -24,19 +26,11 @@ import {
 // middleware redirects a page load to /auth/login before it gets this far.
 export class NotAuthenticated extends Error {}
 
-function cookieOptions() {
-  return {
-    httpOnly: true,
-    secure: APP_BASE_URL.startsWith("https"),
-    sameSite: "lax" as const,
-    path: "/",
-    maxAge: SESSION_MAX_AGE_SECONDS,
-  };
-}
-
 export async function getAccessToken(): Promise<string> {
   const store = await cookies();
-  const session = await unseal<Session>(store.get(SESSION_COOKIE)?.value);
+  const session = await unseal<Session>(
+    readSessionCookie((name) => store.get(name)?.value),
+  );
   if (!session) {
     throw new NotAuthenticated("no session — sign in");
   }
@@ -65,6 +59,12 @@ export async function getAccessToken(): Promise<string> {
     id_token: refreshed.id_token ?? session.id_token,
     expires_at: Date.now() + (refreshed.expires_in ?? 300) * 1000,
   };
-  store.set(SESSION_COOKIE, await seal({ ...next }, SESSION_MAX_AGE_SECONDS), cookieOptions());
+  const sealed = await seal({ ...next }, SESSION_MAX_AGE_SECONDS);
+  const opts = sessionCookieOptions(APP_BASE_URL.startsWith("https"));
+  writeSessionCookies(
+    (name, value) => store.set(name, value, opts),
+    (name) => store.delete(name),
+    sealed,
+  );
   return next.access_token;
 }

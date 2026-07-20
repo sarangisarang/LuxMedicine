@@ -4,10 +4,13 @@ import { NextRequest, NextResponse } from "next/server";
 // route handlers fully decrypt, validate, and refresh the session. The name is inlined rather than
 // imported from lib/oidc so the heavy server-only OIDC modules never get pulled into the edge
 // bundle.
-const SESSION_COOKIE = "lux_session";
+// The session is split across numbered cookies (lux_session.0, .1, …) because a single cookie
+// holding three JWTs exceeds the browser's ~4 KB limit and gets silently dropped (see lib/oidc).
+// Presence of the first chunk is enough for this fast edge check; the routes reassemble and verify.
+const SESSION_COOKIE_FIRST = "lux_session.0";
 
 export function middleware(request: NextRequest) {
-  if (request.cookies.has(SESSION_COOKIE)) {
+  if (request.cookies.has(SESSION_COOKIE_FIRST)) {
     return NextResponse.next();
   }
   const url = request.nextUrl.clone();
