@@ -51,6 +51,7 @@ class KeycloakIdentityProvider:
         *,
         username: str,
         password: str,
+        email: str,
         clinic_id: str,
         name: str | None = None,
         role: str | None = None,
@@ -59,9 +60,19 @@ class KeycloakIdentityProvider:
             async with self._client() as client:
                 token = await self._admin_token(client)
                 auth = {"Authorization": f"Bearer {token}"}
-                user_id = await self._create(client, auth, username, password, clinic_id, name)
-                if role:
-                    await self._assign_role(client, auth, user_id, role)
+                # Resolve the role BEFORE creating anything: a role that does not exist must fail
+                # here, with no user left behind. Doing it after create_user is how the first
+                # end-to-end run left an orphan account and 500'd.
+                role_repr = await self._lookup_role(client, auth, role) if role else None
+                user_id = await self._create(client, auth, username, password, email, clinic_id, name)
+                if role_repr is not None:
+                    try:
+                        await self._assign_role(client, auth, user_id, role_repr)
+                    except Exception:
+                        # The account exists but the role would not attach. Undo the create so a
+                        # retry is clean rather than colliding on the username.
+                        await self._delete_user_best_effort(client, auth, user_id)
+                        raise
                 return user_id
         except httpx.RequestError as exc:
             # DNS, connect, timeout, read — the realm could not be reached or did not finish.
@@ -88,12 +99,18 @@ class KeycloakIdentityProvider:
         auth: dict[str, str],
         username: str,
         password: str,
+        email: str,
         clinic_id: str,
         name: str | None,
     ) -> str:
         payload: dict[str, object] = {
             "username": username,
+            "email": email,
             "enabled": True,
+            # Redeeming an admin's invite IS the verification — without a verified email Keycloak
+            # reports "Account is not fully set up" and refuses the login. (Keycloak 26's user
+            # profile also requires the email to be present, which is why it is not optional.)
+            "emailVerified": True,
             # The whole point: the tenant travels as a user attribute the realm mapper reads.
             "attributes": {"clinic_id": [clinic_id]},
             "credentials": [{"type": "password", "value": password, "temporary": False}],
@@ -117,15 +134,21 @@ class KeycloakIdentityProvider:
             raise IdentityError("user was created but Keycloak returned no id")
         return user_id
 
-    async def _assign_role(
-        self, client: httpx.AsyncClient, auth: dict[str, str], user_id: str, role: str
-    ) -> None:
+    async def _lookup_role(
+        self, client: httpx.AsyncClient, auth: dict[str, str], role: str
+    ) -> dict:
+        """Resolve a realm role to its representation, before any user is created. A 404 is a
+        misconfigured invite (a role that does not exist), surfaced with nothing left behind."""
         got = await client.get(f"/admin/realms/{self._realm}/roles/{role}", headers=auth)
+        if got.status_code == 404:
+            raise IdentityError(f"role {role!r} does not exist in the realm")
         if got.status_code != 200:
-            # The account exists but the role could not be attached. Surface it rather than
-            # returning a half-provisioned user silently.
-            raise IdentityError(f"role {role!r} not found: {got.status_code}")
-        role_repr = got.json()
+            raise IdentityError(f"could not look up role {role!r}: {got.status_code}")
+        return got.json()
+
+    async def _assign_role(
+        self, client: httpx.AsyncClient, auth: dict[str, str], user_id: str, role_repr: dict
+    ) -> None:
         assigned = await client.post(
             f"/admin/realms/{self._realm}/users/{user_id}/role-mappings/realm",
             json=[{"id": role_repr["id"], "name": role_repr["name"]}],
@@ -133,3 +156,13 @@ class KeycloakIdentityProvider:
         )
         if assigned.status_code not in (204, 200):
             raise IdentityError(f"role assignment failed: {assigned.status_code}")
+
+    async def _delete_user_best_effort(
+        self, client: httpx.AsyncClient, auth: dict[str, str], user_id: str
+    ) -> None:
+        """Undo a create whose role could not be attached. Best effort: if the delete itself
+        fails, the original error is what matters and still propagates."""
+        try:
+            await client.delete(f"/admin/realms/{self._realm}/users/{user_id}", headers=auth)
+        except httpx.RequestError:
+            pass

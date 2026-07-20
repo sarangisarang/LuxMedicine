@@ -38,17 +38,19 @@ class TestRegister:
         idp = FakeIdentityProvider()
         code = await _mint(session, clinic_id="clinic-north", role="clinician")
         sub = await register_with_invite(
-            session, idp, code=code, username="dr.new", password="pw", name="Dr New", now=NOW
+            session, idp, code=code, username="dr.new", password="pw", email="e@x.io", name="Dr New", now=NOW
         )
         assert sub == "kc-dr.new"
         # The user is bound to the INVITE's clinic and role — not anything the caller chose.
-        assert idp.users["dr.new"] == {"clinic_id": "clinic-north", "role": "clinician", "name": "Dr New"}
+        assert idp.users["dr.new"] == {
+            "clinic_id": "clinic-north", "role": "clinician", "name": "Dr New", "email": "e@x.io"
+        }
 
     async def test_an_unknown_code_creates_no_user(self, session):
         idp = FakeIdentityProvider()
         with pytest.raises(InviteNotFound):
             await register_with_invite(
-                session, idp, code="nope", username="dr.x", password="pw", now=NOW
+                session, idp, code="nope", username="dr.x", password="pw", email="e@x.io", now=NOW
             )
         assert idp.users == {}  # the provider was never called
 
@@ -56,11 +58,11 @@ class TestRegister:
         idp = FakeIdentityProvider()
         code = await _mint(session)
         await register_with_invite(
-            session, idp, code=code, username="first", password="pw", now=NOW
+            session, idp, code=code, username="first", password="pw", email="e@x.io", now=NOW
         )
         with pytest.raises(InviteAlreadyConsumed):
             await register_with_invite(
-                session, idp, code=code, username="second", password="pw", now=NOW
+                session, idp, code=code, username="second", password="pw", email="e@x.io", now=NOW
             )
         assert list(idp.users) == ["first"]  # the second never got created
 
@@ -69,7 +71,7 @@ class TestRegister:
         code = await _mint(session, expires_at=NOW - timedelta(minutes=1))
         with pytest.raises(InviteExpired):
             await register_with_invite(
-                session, idp, code=code, username="dr.late", password="pw", now=NOW
+                session, idp, code=code, username="dr.late", password="pw", email="e@x.io", now=NOW
             )
         assert idp.users == {}
 
@@ -81,7 +83,7 @@ class TestRegister:
         code = await _mint(session)
         with pytest.raises(IdentityUnavailable):
             await register_with_invite(
-                session, idp, code=code, username="dr.new", password="pw", now=NOW
+                session, idp, code=code, username="dr.new", password="pw", email="e@x.io", now=NOW
             )
         assert idp.users == {}
 
@@ -91,5 +93,5 @@ class TestRegister:
         code = await _mint(session)
         with pytest.raises(UsernameTaken):
             await register_with_invite(
-                session, idp, code=code, username="taken", password="pw", now=NOW
+                session, idp, code=code, username="taken", password="pw", email="e@x.io", now=NOW
             )

@@ -86,7 +86,7 @@ class TestRegister:
         async with _client(session, idp=idp) as client:
             r = await client.post(
                 "/register",
-                json={"code": code, "username": "dr.new", "password": "pw", "name": "Dr New"},
+                json={"code": code, "username": "dr.new", "password": "pw", "email": "e@x.io", "name": "Dr New"},
             )
         assert r.status_code == 201
         assert r.json()["user_id"] == "kc-dr.new"
@@ -96,7 +96,7 @@ class TestRegister:
         idp = FakeIdentityProvider()
         async with _client(session, idp=idp) as client:
             r = await client.post(
-                "/register", json={"code": "nope", "username": "u", "password": "pw"}
+                "/register", json={"code": "nope", "username": "u", "password": "pw", "email": "e@x.io"}
             )
         assert r.status_code == 400
         assert "invalid or expired" in r.json()["detail"]  # never says "no such code"
@@ -107,10 +107,10 @@ class TestRegister:
         idp = FakeIdentityProvider()
         async with _client(session, idp=idp) as client:
             first = await client.post(
-                "/register", json={"code": code, "username": "first", "password": "pw"}
+                "/register", json={"code": code, "username": "first", "password": "pw", "email": "e@x.io"}
             )
             second = await client.post(
-                "/register", json={"code": code, "username": "second", "password": "pw"}
+                "/register", json={"code": code, "username": "second", "password": "pw", "email": "e@x.io"}
             )
         assert first.status_code == 201
         assert second.status_code == 400
@@ -124,14 +124,14 @@ class TestRegister:
         down = FakeIdentityProvider(unavailable=True)
         async with _client(session, idp=down) as client:
             failed = await client.post(
-                "/register", json={"code": code, "username": "dr.new", "password": "pw"}
+                "/register", json={"code": code, "username": "dr.new", "password": "pw", "email": "e@x.io"}
             )
         assert failed.status_code == 503
 
         up = FakeIdentityProvider()
         async with _client(session, idp=up) as client:
             retry = await client.post(
-                "/register", json={"code": code, "username": "dr.new", "password": "pw"}
+                "/register", json={"code": code, "username": "dr.new", "password": "pw", "email": "e@x.io"}
             )
         assert retry.status_code == 201  # the code was NOT burned by the outage
         assert "dr.new" in up.users

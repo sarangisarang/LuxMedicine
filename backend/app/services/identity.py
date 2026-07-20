@@ -35,14 +35,16 @@ class IdentityProvider(Protocol):
         *,
         username: str,
         password: str,
+        email: str,
         clinic_id: str,
         name: str | None = None,
         role: str | None = None,
     ) -> str:
         """Create a user bound to `clinic_id` and return its subject id (the token `sub`).
 
-        Raises UsernameTaken if the username is in use, IdentityUnavailable if the provider is
-        unreachable.
+        `email` is required and set verified: Keycloak refuses a login as "account not fully set
+        up" without it, and the admin's invite is the verification. Raises UsernameTaken if the
+        username is in use, IdentityUnavailable if the provider is unreachable.
         """
         ...
 
@@ -64,6 +66,7 @@ class FakeIdentityProvider:
         *,
         username: str,
         password: str,
+        email: str,
         clinic_id: str,
         name: str | None = None,
         role: str | None = None,
@@ -72,5 +75,5 @@ class FakeIdentityProvider:
             raise IdentityUnavailable("identity provider is unreachable")
         if username in self.users:
             raise UsernameTaken(f"username already exists: {username}")
-        self.users[username] = {"clinic_id": clinic_id, "role": role, "name": name}
+        self.users[username] = {"clinic_id": clinic_id, "role": role, "name": name, "email": email}
         return f"kc-{username}"

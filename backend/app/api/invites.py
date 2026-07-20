@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth import Clinician, require_clinic_admin
 from app.db.session import get_session
 from app.services.identity import (
+    IdentityError,
     IdentityProvider,
     IdentityUnavailable,
     UsernameTaken,
@@ -65,6 +66,9 @@ class InviteResponse(BaseModel):
 class RegisterRequest(BaseModel):
     code: str
     username: str = Field(min_length=1)
+    # Required and set verified on the account: Keycloak refuses a login without it. A minimal
+    # shape check only — the identity provider is the real validator.
+    email: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
     password: str = Field(min_length=1)
     name: str | None = None
 
@@ -110,6 +114,7 @@ async def register(
             code=body.code,
             username=body.username,
             password=body.password,
+            email=body.email,
             name=body.name,
             now=datetime.now(UTC),
         )
@@ -135,4 +140,14 @@ async def register(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="registration is temporarily unavailable; try again",
+        ) from None
+    except IdentityError:
+        # A provider-side problem that is neither a collision nor an outage — e.g. an invite
+        # naming a role that does not exist. Not the registrant's fault and not a 500: roll the
+        # code back and report a gateway error, so it is retryable once the misconfiguration is
+        # fixed rather than a burned code and a stack trace.
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="registration could not be completed; please contact your administrator",
         ) from None

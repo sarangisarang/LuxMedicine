@@ -35,6 +35,7 @@ async def register_with_invite(
     code: str,
     username: str,
     password: str,
+    email: str,
     now: datetime,
     name: str | None = None,
 ) -> str:
@@ -53,6 +54,7 @@ async def register_with_invite(
     sub = await idp.create_user(
         username=username,
         password=password,
+        email=email,
         clinic_id=invite.clinic_id,
         name=name,
         role=invite.role,
