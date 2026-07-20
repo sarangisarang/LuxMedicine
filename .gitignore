@@ -22,3 +22,8 @@ storage/
 
 # Production secrets — never commit
 deploy/.env.prod
+# Vertex service-account key (mounted into the api container for EU-region ADC)
+deploy/gcp-sa.json
+
+# Int8 ONNX embedding model artifact (~540 MB) — shipped to the server, not committed
+models/

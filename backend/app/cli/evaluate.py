@@ -312,11 +312,11 @@ async def main_async(args: argparse.Namespace) -> int:
     if args.only:
         questions = [q for q in questions if q.id in set(args.only)]
 
-    from app.services.embedding import E5Embedder
+    from app.services.embedding import make_embedder
     from app.services.extractor_gemini import GeminiExtractor
 
     print(f"{len(questions)} questions | loading the embedder (local, no quota)…")
-    embedder = E5Embedder()
+    embedder = make_embedder()
     extractor = GeminiExtractor()
     model = extractor.model
     if settings.llm_cache_dir is not None:

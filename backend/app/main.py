@@ -25,11 +25,14 @@ async def lifespan(app: FastAPI):
     ASGITransport); and building the embedder once, here, means the model is loaded a single
     time for the process rather than per request.
     """
-    from app.services.embedding import E5Embedder
+    from app.services.embedding import make_embedder
     from app.services.extractor_gemini import GeminiExtractor
     from app.services.translation import GeminiTranslator
 
-    embedder = E5Embedder()
+    # make_embedder picks the runtime from settings.embedding_backend: fp32 sentence-transformers
+    # for local dev, int8 ONNX (no torch) in production where RAM is the constraint. Both produce
+    # interchangeable 1024-dim vectors — the choice is footprint, not behaviour.
+    embedder = make_embedder()
     extractor: object = GeminiExtractor()
     translator: object = GeminiTranslator()
 

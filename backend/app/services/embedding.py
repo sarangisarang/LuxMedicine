@@ -125,3 +125,124 @@ class E5Embedder:
 
     def embed_query(self, text: str) -> list[float]:
         return self._encode([QUERY_PREFIX + text])[0]
+
+
+class E5OnnxEmbedder:
+    """The same multilingual-e5-large, run as an int8 ONNX graph via onnxruntime.
+
+    Same model, same 1024 dimensions, same `passage:`/`query:` prefixes, same mean-pool +
+    L2-normalise as E5Embedder — so the vectors live in the same space and the corpus does not
+    have to be re-embedded to switch runtimes (parity is measured, not assumed). What changes is
+    the footprint: this path needs neither torch nor sentence-transformers, so the process RSS
+    drops from ~2.3 GB to a few hundred MB — the difference between fitting on a small shared box
+    and not. onnxruntime + a tokenizer are the only heavy imports, both lazy.
+
+    The pooling is replicated by hand because ORTModelForFeatureExtraction returns token vectors,
+    not a sentence embedding; getting it wrong is the silent-quality failure the module docstring
+    warns about, which is why test parity against the fp32 model is part of shipping this.
+    """
+
+    def __init__(
+        self,
+        model_dir,
+        *,
+        batch_size: int = 16,
+    ) -> None:
+        try:
+            import numpy as np
+            import onnxruntime as ort
+            from transformers import AutoTokenizer
+        except ImportError as exc:  # pragma: no cover — depends on the extra
+            raise ImportError(
+                "E5OnnxEmbedder needs the 'onnx' extra: pip install -e \".[onnx]\""
+            ) from exc
+
+        from pathlib import Path
+
+        model_dir = Path(model_dir)
+        try:
+            model_file = next(model_dir.glob("*quantized*.onnx"))
+        except StopIteration as exc:
+            raise FileNotFoundError(
+                f"no *quantized*.onnx under {model_dir} — build it with the conversion step"
+            ) from exc
+
+        self._np = np
+        self._session = ort.InferenceSession(
+            str(model_file), providers=["CPUExecutionProvider"]
+        )
+        self._input_names = {i.name for i in self._session.get_inputs()}
+        self._tokenizer = AutoTokenizer.from_pretrained(str(model_dir))
+        self._batch_size = batch_size
+        self._model_name = f"{DEFAULT_MODEL} (onnx-int8)"
+
+        # The graph's output width IS the schema contract, exactly as for the fp32 path.
+        probe = self._encode(["passage: dimension probe"])[0]
+        produced = len(probe)
+        expected = get_settings().embedding_dim
+        if produced != expected:
+            raise EmbeddingDimensionError(self._model_name, produced, expected)
+        self._dimension = produced
+
+    @property
+    def dimension(self) -> int:
+        return self._dimension
+
+    @property
+    def model_name(self) -> str:
+        return self._model_name
+
+    def _encode(self, prefixed: list[str]) -> list[list[float]]:
+        np = self._np
+        out: list[list[float]] = []
+        for start in range(0, len(prefixed), self._batch_size):
+            batch = prefixed[start : start + self._batch_size]
+            enc = self._tokenizer(
+                batch,
+                padding=True,
+                truncation=True,
+                max_length=512,
+                return_tensors="np",
+            )
+            feed = {
+                "input_ids": enc["input_ids"].astype(np.int64),
+                "attention_mask": enc["attention_mask"].astype(np.int64),
+            }
+            # e5 is XLM-RoBERTa based; some exports still declare token_type_ids (all zeros).
+            if "token_type_ids" in self._input_names:
+                feed["token_type_ids"] = np.zeros_like(enc["input_ids"], dtype=np.int64)
+
+            last_hidden = self._session.run(None, feed)[0]  # (batch, seq, dim)
+            mask = enc["attention_mask"][..., None].astype(np.float32)
+            summed = (last_hidden * mask).sum(axis=1)
+            counts = np.clip(mask.sum(axis=1), 1e-9, None)
+            mean = summed / counts  # mean pooling over non-pad tokens
+            norm = mean / np.clip(
+                np.linalg.norm(mean, axis=1, keepdims=True), 1e-12, None
+            )  # L2 normalise, as normalize_embeddings=True does
+            out.extend(vector.tolist() for vector in norm.astype(np.float32))
+        return out
+
+    def embed_passages(self, texts: list[str]) -> list[list[float]]:
+        return self._encode([PASSAGE_PREFIX + text for text in texts])
+
+    def embed_query(self, text: str) -> list[float]:
+        return self._encode([QUERY_PREFIX + text])[0]
+
+
+def make_embedder() -> Embedder:
+    """Build the embedder the settings ask for — the one place the backend is chosen.
+
+    Both backends satisfy the Embedder Protocol and produce interchangeable vectors; the choice is
+    purely footprint (see Settings.embedding_backend). Kept here so main.py and every CLI wire the
+    same one instead of hard-coding E5Embedder.
+    """
+    settings = get_settings()
+    if settings.embedding_backend == "onnx":
+        if settings.embedding_onnx_dir is None:
+            raise ValueError(
+                "embedding_backend=onnx requires embedding_onnx_dir to point at the "
+                "quantized model directory"
+            )
+        return E5OnnxEmbedder(settings.embedding_onnx_dir)
+    return E5Embedder()

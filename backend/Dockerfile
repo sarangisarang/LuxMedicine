@@ -23,7 +23,11 @@ COPY app ./app
 COPY alembic ./alembic
 COPY alembic.ini ./
 
-RUN pip install --no-cache-dir -e ".[embeddings,gemini]"
+# Both embedding runtimes are installed; which one LOADS is chosen at runtime by
+# EMBEDDING_BACKEND. Production sets it to "onnx" (E5OnnxEmbedder) so torch is present on disk but
+# never imported — the process RSS is the int8 ONNX graph (~1 GB), not fp32 torch (~2.5 GB), which
+# is what lets the stack fit on a small shared host. Local/dev can still use the fp32 path.
+RUN pip install --no-cache-dir -e ".[embeddings,onnx,gemini]"
 
 EXPOSE 8000
 

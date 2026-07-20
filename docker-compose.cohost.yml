@@ -1,0 +1,158 @@
+# Co-tenant production stack for LuxMedicine — shares a server with ATOB Transport.
+#
+# WHY THIS FILE EXISTS (separate from docker-compose.prod.yml):
+# The box 178.105.170.162 already runs a live ATOB prod stack (compose project `deploy`,
+# containers deploy-*, its own nginx owning :80/:443 + certbot). Per the server handoff, a second
+# app must NOT bring its own proxy, must NOT publish 80/443, must NOT open ufw ports, and must use
+# a DISTINCT compose project name so it can never collide with the `deploy-*` containers. So this
+# file drops the proxy+certbot services of docker-compose.prod.yml and slots LuxMedicine BEHIND
+# ATOB's existing nginx instead.
+#
+# Bring up (from the LuxMedicine dir on the server, e.g. /opt/luxmedicine):
+#   docker compose --env-file deploy/.env.prod -f docker-compose.cohost.yml up -d --build
+#
+# HARD RULES (see deploy/README.md and the handoff): never `docker compose` ATOB from
+# /home/deploy/TrackTransporter/deploy; add the nginx server block in that dir's conf.d/ and
+# `nginx -s reload` (never restart); verify ATOB after every change:
+#   curl -s -o /dev/null -w '%{http_code}\n' https://api.atobtransport.de/api/transport-types  # 401/403 = healthy
+
+name: luxmedicine-prod        # NOT `deploy` — the collision guard the handoff demands.
+
+networks:
+  # LuxMedicine's private network: db, keycloak-db, api, and the internal legs of web/keycloak.
+  internal:
+    driver: bridge
+  # ATOB's nginx network, pre-existing. web and keycloak join it so ATOB's nginx can reach them by
+  # a stable alias (lux-web / lux-keycloak) via proxy_pass. Declared external so compose attaches to
+  # it instead of creating it — it is owned by the `deploy` project.
+  deploy_internal:
+    external: true
+
+volumes:
+  pgdata:
+  kcdata:
+  storage:
+  hf-cache:
+
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: luxmed
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: luxmedicine
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U luxmed -d luxmedicine"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [internal]        # internal only — never on ATOB's network, never a published port.
+
+  keycloak-db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      POSTGRES_DB: keycloak
+    volumes:
+      - kcdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [internal]
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    restart: unless-stopped
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    # Production mode. --import-realm imports on first boot only (Postgres persists it after).
+    command: ["start", "--import-realm", "--optimized"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak  # gitleaks:allow — JDBC URL, password is separate
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      # Public hostname the browser reaches Keycloak at — lands in a token's `iss`, so the api's
+      # OIDC_ISSUER and the web client's OIDC_ISSUER must match it exactly.
+      KC_HOSTNAME: https://auth.${LUX_DOMAIN}
+      # TLS terminates at ATOB's nginx; Keycloak trusts the forwarded proto/host and serves plain
+      # HTTP (port 8080) on the internal network.
+      KC_PROXY_HEADERS: xforwarded
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USERNAME}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      # Cap the JVM heap: on a shared 3.7 GB box every 100 MB counts, and Keycloak's default heap
+      # sizing (a fraction of total RAM) is far more than this low-traffic realm needs.
+      JAVA_OPTS_APPEND: "-Xms64m -Xmx350m"
+    volumes:
+      - ./backend/keycloak/realm-luxmedicine.json:/opt/keycloak/data/import/realm-luxmedicine.json:ro
+    networks:
+      internal: {}
+      deploy_internal:
+        # ATOB's nginx does `proxy_pass http://lux-keycloak:8080` for auth.${LUX_DOMAIN}.
+        aliases: [lux-keycloak]
+
+  api:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: postgresql+asyncpg://luxmed:${POSTGRES_PASSWORD}@db:5432/luxmedicine
+      OIDC_ISSUER: https://auth.${LUX_DOMAIN}/realms/luxmedicine
+      OIDC_AUDIENCE: luxmedicine-api
+      # Admin API (server-to-server) uses the INTERNAL address — no issuer check involved.
+      KEYCLOAK_BASE_URL: http://keycloak:8080
+      KEYCLOAK_REALM: luxmedicine
+      KEYCLOAK_ADMIN_CLIENT_ID: luxmedicine-admin
+      KEYCLOAK_ADMIN_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET}
+      # EU data residency: Vertex in an EU region. On this Hetzner box there is NO GCP metadata
+      # server, so Application Default Credentials come from a mounted service-account key.
+      GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT}
+      GOOGLE_CLOUD_LOCATION: ${GOOGLE_CLOUD_LOCATION}
+      GEMINI_MODEL: ${GEMINI_MODEL}
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/gcp-sa.json
+      # Int8 ONNX embedder (no torch loaded) — the footprint that lets this fit alongside ATOB.
+      # Measured equivalent to fp32 on the eval (25/27 questions identical, #48 + firewall intact).
+      EMBEDDING_BACKEND: onnx
+      EMBEDDING_ONNX_DIR: /app/models/e5-int8
+    volumes:
+      - storage:/app/storage
+      # The int8 model artifact (~540 MB): model_quantized.onnx + tokenizer. Ship it to the server
+      # (git-ignored, not in the image) and mount read-only.
+      - ./models/e5-int8:/app/models/e5-int8:ro
+      # The Vertex service-account key. Place the downloaded JSON at deploy/gcp-sa.json on the
+      # server (git-ignored, never committed). Read-only mount.
+      - ./deploy/gcp-sa.json:/run/secrets/gcp-sa.json:ro
+    networks: [internal]        # internal only — the frontend reaches it; ATOB's nginx does NOT.
+
+  web:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on: [api]
+    environment:
+      NEXT_PUBLIC_API_URL: http://api:8000
+      # Per-user OIDC login (BFF). Issuer is Keycloak's PUBLIC url so a browser token's iss validates.
+      OIDC_ISSUER: https://auth.${LUX_DOMAIN}/realms/luxmedicine
+      OIDC_CLIENT_ID: luxmedicine-web
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
+      SESSION_SECRET: ${SESSION_SECRET}
+      APP_BASE_URL: https://${LUX_DOMAIN}
+    networks:
+      internal: {}
+      deploy_internal:
+        # ATOB's nginx does `proxy_pass http://lux-web:3000` for ${LUX_DOMAIN}.
+        aliases: [lux-web]

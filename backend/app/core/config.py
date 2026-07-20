@@ -39,6 +39,15 @@ class Settings(BaseSettings):
     # Changing this means re-embedding every chunk AND a new migration.
     embedding_dim: int = 1024
 
+    # Which local embedding runtime to load. Both are the SAME model (multilingual-e5-large,
+    # 1024-dim, same EU-residency guarantee) and the same prefixes/pooling — they differ only in
+    # footprint. "sentence-transformers" loads fp32 via torch (~2.3 GB RSS); "onnx" runs an int8
+    # ONNX graph via onnxruntime with NO torch (~0.4 GB), which is what lets the stack fit on a
+    # small co-tenant box. Parity between the two is measured, not assumed (see the eval diff).
+    embedding_backend: str = "sentence-transformers"
+    # Directory holding model_quantized.onnx + the tokenizer, required when embedding_backend=onnx.
+    embedding_onnx_dir: Path | None = None
+
     environment: str = "local"
 
     # Where original PDFs live. Local disk for now; this must become EU-hosted object

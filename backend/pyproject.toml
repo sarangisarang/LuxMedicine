@@ -35,6 +35,12 @@ dependencies = [
 # this extra is present.
 embeddings = ["sentence-transformers>=3.0"]
 
+# The same multilingual-e5-large, run as an int8 ONNX graph — deliberately WITHOUT torch or
+# sentence-transformers, so the runtime footprint drops from ~2.3 GB to a few hundred MB. This is
+# the production embedder on a memory-constrained host; `transformers` here is the tokenizer only
+# (no torch is pulled by importing AutoTokenizer). The int8 model is a build artifact, not a dep.
+onnx = ["onnxruntime>=1.20", "transformers>=4.40", "tokenizers>=0.20"]
+
 # The extraction step (#18). Kept out of the default install for the same reason as the
 # embedder — and for one more: it needs an API key and it costs money per call, so
 # nothing should reach for it by accident. app/services/extractor_claude.py has NOT been
