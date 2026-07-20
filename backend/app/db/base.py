@@ -7,4 +7,13 @@ class Base(DeclarativeBase):
 
 # Imported for their side effect: Alembic's autogenerate needs every model
 # registered on Base.metadata before it diffs against the live database.
-from app.models import alias, audit, checkpoint, chunk, document, erasure, query  # noqa: E402,F401
+from app.models import (  # noqa: E402,F401
+    alias,
+    audit,
+    checkpoint,
+    chunk,
+    document,
+    erasure,
+    invite,
+    query,
+)

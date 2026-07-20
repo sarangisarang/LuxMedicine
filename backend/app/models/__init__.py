@@ -4,6 +4,7 @@ from app.models.checkpoint import ChainCheckpoint
 from app.models.chunk import Chunk
 from app.models.document import Document, DocumentVersion, VersionStatus
 from app.models.erasure import ERASURE_GENESIS_HASH, ErasureLog, LegalBasis
+from app.models.invite import Invite
 from app.models.query import Query
 
 __all__ = [
@@ -16,6 +17,7 @@ __all__ = [
     "DrugAlias",
     "DocumentVersion",
     "ErasureLog",
+    "Invite",
     "LegalBasis",
     "Query",
     "VersionStatus",
