@@ -74,7 +74,10 @@ services:
       keycloak-db:
         condition: service_healthy
     # Production mode. --import-realm imports on first boot only (Postgres persists it after).
-    command: ["start", "--import-realm", "--optimized"]
+    # No --optimized: that flag reuses build-time config baked into the image, but the stock quay
+    # image isn't built for postgres, so it would ignore KC_DB and fail. Without it, Keycloak runs
+    # its build step at startup and picks up KC_DB=postgres from the environment (a bit slower to boot).
+    command: ["start", "--import-realm"]
     environment:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak  # gitleaks:allow — JDBC URL, password is separate
@@ -92,7 +95,7 @@ services:
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
       # Cap the JVM heap: on a shared 3.7 GB box every 100 MB counts, and Keycloak's default heap
       # sizing (a fraction of total RAM) is far more than this low-traffic realm needs.
-      JAVA_OPTS_APPEND: "-Xms64m -Xmx350m"
+      JAVA_OPTS_APPEND: "-Xms64m -Xmx512m"
     volumes:
       - ./backend/keycloak/realm-luxmedicine.json:/opt/keycloak/data/import/realm-luxmedicine.json:ro
     networks:
@@ -133,12 +136,26 @@ services:
       # Measured equivalent to fp32 on the eval (25/27 questions identical, #48 + firewall intact).
       EMBEDDING_BACKEND: onnx
       EMBEDDING_ONNX_DIR: /app/models/e5-int8
+    # Back-channel to Keycloak (JWKS for token validation) goes to the PUBLIC issuer host, but a
+    # container resolving that public name over the internet + hairpin NAT is unreliable. Pin it to
+    # ATOB's nginx on the shared network instead: the container reaches nginx internally, TLS still
+    # validates (real cert), and nginx proxies to keycloak. The IP is deploy-nginx-1 on
+    # deploy_internal — stable as long as ATOB's nginx is not recreated (which the handoff forbids).
+    extra_hosts:
+      - "auth.${LUX_DOMAIN}:172.18.0.4"
+      - "${LUX_DOMAIN}:172.18.0.4"
     volumes:
       - storage:/app/storage
       # The int8 model artifact (~540 MB): model_quantized.onnx + tokenizer. Ship it to the server
       # (git-ignored, not in the image) and mount read-only.
       - ./models/e5-int8:/app/models/e5-int8:ro
-    networks: [internal]        # internal only — the frontend reaches it; ATOB's nginx does NOT.
+    networks:
+      # The frontend reaches the api on the private network; ATOB's nginx never does (no alias, no
+      # proxy). The api ALSO joins deploy_internal purely for OUTBOUND: it validates access tokens
+      # against Keycloak's JWKS at the public issuer host, which extra_hosts pins to ATOB's nginx
+      # (172.18.0.4) — reachable only from that network.
+      internal: {}
+      deploy_internal: {}
 
   web:
     build: ./frontend
@@ -152,6 +169,11 @@ services:
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
       SESSION_SECRET: ${SESSION_SECRET}
       APP_BASE_URL: https://${LUX_DOMAIN}
+    # The BFF's back-channel token exchange + JWKS calls hit the PUBLIC issuer host; pin it to
+    # ATOB's nginx on the shared network so the container reaches Keycloak reliably (see api above).
+    extra_hosts:
+      - "auth.${LUX_DOMAIN}:172.18.0.4"
+      - "${LUX_DOMAIN}:172.18.0.4"
     networks:
       internal: {}
       deploy_internal:
