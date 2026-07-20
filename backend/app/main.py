@@ -36,6 +36,17 @@ async def lifespan(app: FastAPI):
     extractor: object = GeminiExtractor()
     translator: object = GeminiTranslator()
 
+    # Announce the demo escape hatch loudly, every boot, so it can never be the quiet default
+    # nobody noticed. If this line is in a production log, clinical text may be leaving the EU.
+    if settings.allow_non_eu_inference and settings.environment != "local":
+        import logging
+
+        logging.getLogger("uvicorn.error").warning(
+            "ALLOW_NON_EU_INFERENCE is ON: the EU-residency refusal is disabled and inference may "
+            "run on a non-EU endpoint. This is a DEMO posture only — do not enter real patient "
+            "data. Set GOOGLE_CLOUD_PROJECT to a europe-west region and turn this off for clinical use."
+        )
+
     # Local only, and Settings refuses to boot if that is violated — the cache is keyed on
     # the question, which erasure could not reach, and it freezes a model that is not
     # deterministic. See services/llm_cache.py.

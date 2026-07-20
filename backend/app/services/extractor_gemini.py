@@ -205,9 +205,14 @@ class GeminiExtractor:
         # Gated on `environment` for the same reason `settings` gates the OIDC check:
         # local development must be able to measure this against invented fixtures
         # without a GCP project, and a deployment must not be able to send a clinician's
-        # question anywhere it likes. There is deliberately no flag that turns the
-        # refusal off — see core/auth.py on why AUTH_DISABLED does not exist either.
-        if get_settings().environment != "local":
+        # question anywhere it likes.
+        #
+        # `allow_non_eu_inference` is the single, explicit, off-by-default demo escape hatch (see
+        # Settings). It relaxes ONLY residency, only when deliberately set, and main.py announces it
+        # loudly at boot — the opposite of a silent bypass. Everything else (auth, audit, cache
+        # rule) stays enforced. For real clinical use it stays off and Vertex-EU carries inference.
+        settings = get_settings()
+        if settings.environment != "local" and not settings.allow_non_eu_inference:
             self.refuse_unless_eu_processing()
 
         if not passages:

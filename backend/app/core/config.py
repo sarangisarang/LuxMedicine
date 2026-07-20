@@ -50,6 +50,16 @@ class Settings(BaseSettings):
 
     environment: str = "local"
 
+    # DEMO ESCAPE HATCH — off by default, and it should stay off for any real clinical use.
+    # When true, the extractor's EU-residency refusal is skipped even in production, so inference
+    # may run on a non-EU endpoint (the free Gemini developer API routes globally). This exists
+    # ONLY so an MVP/demo can run before Vertex-EU billing is wired, and it is deliberately loud:
+    # main.py logs a warning at startup whenever it is set. It relaxes ONLY data residency — auth,
+    # the audit chain, and the erasure-safe cache rule are all still enforced. Sending real patient
+    # context anywhere non-EU is a GDPR problem; turn this off and set GOOGLE_CLOUD_PROJECT to a
+    # europe-west region for anything beyond a demo. See services/extractor_gemini.py.
+    allow_non_eu_inference: bool = False
+
     # Where original PDFs live. Local disk for now; this must become EU-hosted object
     # storage before any real deployment, for the same data-residency reason that
     # decided the embedding model.

@@ -198,6 +198,32 @@ def test_a_deployment_cannot_extract_through_a_non_eu_endpoint(monkeypatch):
         get_settings.cache_clear()
 
 
+def test_allow_non_eu_inference_waives_the_refusal_only_when_set(monkeypatch):
+    """The demo escape hatch: explicit, off-by-default, and it waives ONLY residency.
+
+    With ALLOW_NON_EU_INFERENCE on, a production deployment may extract through the global
+    endpoint (an MVP/demo posture). Empty passages let us prove the refusal did not fire without
+    a network call — the refusal is checked before the empty-passage early return. The default
+    (previous test) still raises, so this cannot be reached by accident.
+    """
+    from app.core.config import get_settings
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("OIDC_ISSUER", "https://idp.example.invalid/realms/x")
+    monkeypatch.setenv("OIDC_AUDIENCE", "luxmedicine-api")
+    monkeypatch.setenv("LLM_CACHE_DIR", "")
+    monkeypatch.setenv("ALLOW_NON_EU_INFERENCE", "true")
+    get_settings.cache_clear()
+    try:
+        extractor = GeminiExtractor()  # Developer API: global endpoint, would normally be refused
+
+        # No ProcessingLeavesTheEU: the waiver let it past, and empty passages return before any call.
+        result = extractor.extract("What is the maximum bisoprolol dose?", [])
+        assert result is not None and result.quotes == []
+    finally:
+        get_settings.cache_clear()
+
+
 def test_local_development_can_still_measure(monkeypatch):
     """The refusal must not make the thing untestable. Measuring an extractor against
     invented fixtures needs no GCP project, and requiring one would mean the only way to

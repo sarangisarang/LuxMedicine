@@ -119,12 +119,16 @@ services:
       KEYCLOAK_REALM: luxmedicine
       KEYCLOAK_ADMIN_CLIENT_ID: luxmedicine-admin
       KEYCLOAK_ADMIN_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET}
-      # EU data residency: Vertex in an EU region. On this Hetzner box there is NO GCP metadata
-      # server, so Application Default Credentials come from a mounted service-account key.
-      GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT}
-      GOOGLE_CLOUD_LOCATION: ${GOOGLE_CLOUD_LOCATION}
+      # DEMO inference: the free Gemini developer API (no GOOGLE_CLOUD_PROJECT set → the extractor
+      # uses the API key, not Vertex). This endpoint is GLOBAL, not EU — so the EU-residency refusal
+      # is explicitly waived below. This is an MVP/demo posture; for real clinical use, set
+      # GOOGLE_CLOUD_PROJECT + GOOGLE_CLOUD_LOCATION=europe-west3, mount a service-account key at
+      # GOOGLE_APPLICATION_CREDENTIALS, and set ALLOW_NON_EU_INFERENCE=false.
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
       GEMINI_MODEL: ${GEMINI_MODEL}
-      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/gcp-sa.json
+      # Waives ONLY the EU-residency refusal (see backend Settings) — auth, audit, and cache rules
+      # stay enforced. main.py logs a loud warning at boot while this is on.
+      ALLOW_NON_EU_INFERENCE: "true"
       # Int8 ONNX embedder (no torch loaded) — the footprint that lets this fit alongside ATOB.
       # Measured equivalent to fp32 on the eval (25/27 questions identical, #48 + firewall intact).
       EMBEDDING_BACKEND: onnx
@@ -134,9 +138,6 @@ services:
       # The int8 model artifact (~540 MB): model_quantized.onnx + tokenizer. Ship it to the server
       # (git-ignored, not in the image) and mount read-only.
       - ./models/e5-int8:/app/models/e5-int8:ro
-      # The Vertex service-account key. Place the downloaded JSON at deploy/gcp-sa.json on the
-      # server (git-ignored, never committed). Read-only mount.
-      - ./deploy/gcp-sa.json:/run/secrets/gcp-sa.json:ro
     networks: [internal]        # internal only — the frontend reaches it; ATOB's nginx does NOT.
 
   web:

@@ -76,6 +76,13 @@ export default function Home() {
             </div>
             <p className="mt-1 text-sm text-neutral-500">{t.tagline}</p>
 
+            {/* Demo posture: inference runs on a non-EU endpoint (free Gemini) until Vertex-EU is
+                wired. Remove this banner when ALLOW_NON_EU_INFERENCE is turned off and inference is
+                EU-resident again — see backend Settings.allow_non_eu_inference. */}
+            <p className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+              {t.demoNotice}
+            </p>
+
             <form onSubmit={ask} className="mt-8 space-y-3">
               <textarea
                 value={question}
