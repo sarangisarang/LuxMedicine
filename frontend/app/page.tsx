@@ -41,12 +41,18 @@ export default function Home() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? `request failed (${res.status})`);
+        // The route tags the cause (see app/api/query/route.ts): an auth/token problem and the
+        // server being down are different actions for the clinician, and neither is "no answer".
+        if (data.kind === "auth") setError(t.errors.auth);
+        else if (data.kind === "server") setError(t.errors.server);
+        else setError(t.errors.request(data.error ?? `HTTP ${res.status}`));
       } else {
         setAnswer(data as QueryResponse);
       }
-    } catch (e) {
-      setError((e as Error).message);
+    } catch {
+      // fetch itself threw — the frontend could not even reach its own API route (network,
+      // the app not running). That is a server-reachability problem, not a rejected question.
+      setError(t.errors.server);
     } finally {
       setLoading(false);
     }

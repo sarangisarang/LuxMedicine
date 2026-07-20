@@ -38,6 +38,16 @@ type Strings = {
     verification_failed: string;
     table_not_citable: string;
     fallback: string;
+    // Shown only when the corpus did not answer (not on our own faults), because rephrasing is
+    // what can help there and cannot help a verification failure.
+    hint: string;
+  };
+  // A failed request, told apart by cause: an auth/token problem vs the server being down are
+  // different actions for the user, and neither is "no answer".
+  errors: {
+    auth: string;
+    server: string;
+    request: (detail: string) => string;
   };
   rejected: (n: number) => string;
   superseded: (label: string | null) => string;
@@ -87,6 +97,12 @@ export const STRINGS: Record<UiLang, Strings> = {
       table_not_citable:
         "The answer is in a table, and this system cannot yet quote it with the column headings that give its category numbers meaning. Rather than show a number without its heading, it is withheld — open the source page to read the table directly.",
       fallback: "No answer.",
+      hint: "Try a more specific question, or ask it the way these guidelines are written — for example, which contraceptive method suits a particular condition, rather than how to treat pain in general.",
+    },
+    errors: {
+      auth: "Your session could not be authenticated. Sign in again, or check that the login service is running.",
+      server: "The server did not respond. It may be starting up or down — wait a moment and try again.",
+      request: (detail) => `The request could not be processed: ${detail}`,
     },
     rejected: (n) =>
       `${n} quote${n === 1 ? " was" : "s were"} rejected as unverifiable and ${n === 1 ? "is" : "are"} not shown.`,
@@ -137,6 +153,13 @@ export const STRINGS: Record<UiLang, Strings> = {
       table_not_citable:
         "Die Antwort steht in einer Tabelle, und dieses System kann sie noch nicht zusammen mit den Spaltenüberschriften zitieren, die den Kategoriezahlen ihre Bedeutung geben. Statt eine Zahl ohne ihre Überschrift anzuzeigen, wird sie zurückgehalten — öffnen Sie die Quellseite, um die Tabelle direkt zu lesen.",
       fallback: "Keine Antwort.",
+      hint: "Stellen Sie die Frage spezifischer, oder so, wie diese Leitlinien geschrieben sind — zum Beispiel, welche Verhütungsmethode zu einer bestimmten Erkrankung passt, statt wie man Schmerzen allgemein behandelt.",
+    },
+    // TODO(review): clinician-facing German — have a native speaker check before deploy.
+    errors: {
+      auth: "Ihre Sitzung konnte nicht authentifiziert werden. Melden Sie sich erneut an, oder prüfen Sie, ob der Anmeldedienst läuft.",
+      server: "Der Server hat nicht geantwortet. Er startet möglicherweise gerade oder ist nicht erreichbar — warten Sie einen Moment und versuchen Sie es erneut.",
+      request: (detail) => `Die Anfrage konnte nicht verarbeitet werden: ${detail}`,
     },
     rejected: (n) =>
       `${n} Zitat${n === 1 ? "" : "e"} wurde${n === 1 ? "" : "n"} als nicht überprüfbar verworfen und ${n === 1 ? "wird" : "werden"} nicht angezeigt.`,
@@ -189,6 +212,12 @@ export const STRINGS: Record<UiLang, Strings> = {
       table_not_citable:
         "პასუხი ცხრილშია, და სისტემას ჯერ არ შეუძლია ის ციტირდეს იმ სვეტის სათაურებთან ერთად, რომლებიც კატეგორიის რიცხვებს აზრს ანიჭებენ. იმის ნაცვლად, რომ რიცხვი სათაურის გარეშე აჩვენოს, ის დაფარულია — გახსენით წყაროს გვერდი და წაიკითხეთ ცხრილი პირდაპირ.",
       fallback: "პასუხი არ არის.",
+      hint: "სცადე უფრო კონკრეტული კითხვა, ან ისე დასვი, როგორც ეს გაიდლაინებია დაწერილი — მაგალითად, რომელი კონტრაცეპტივი შეეფერება კონკრეტულ მდგომარეობას, და არა როგორ ვუმკურნალო ტკივილს ზოგადად.",
+    },
+    errors: {
+      auth: "სესია ვერ დამოწმდა. თავიდან შედი, ან შეამოწმე, მუშაობს თუ არა ავტორიზაციის სერვისი.",
+      server: "სერვერმა არ უპასუხა. შესაძლოა ეშვება ან გამორთულია — მოიცადე წამით და თავიდან სცადე.",
+      request: (detail) => `მოთხოვნა ვერ დამუშავდა: ${detail}`,
     },
     rejected: (n) => `${n} ციტატა უარყოფილია როგორც გადაუმოწმებელი და არ ჩვენდება.`,
     superseded: (label) =>

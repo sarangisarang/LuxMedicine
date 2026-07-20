@@ -22,13 +22,20 @@ export function AnswerView({
   const t = useT();
 
   if (!answer.groups || answer.groups.length === 0) {
+    // Rephrasing helps only when the corpus did not answer — not on our own faults
+    // (verification_failed, table_not_citable), where a differently-worded question changes
+    // nothing and the hint would be false comfort.
+    const reason = answer.no_answer_reason;
+    const canRephrase =
+      reason === "sources_do_not_answer" || reason === "no_relevant_sources";
     return (
       <section className="mt-8 rounded-lg border border-neutral-300 p-4 dark:border-neutral-700">
         <p className="text-sm text-neutral-700 dark:text-neutral-300">
-          {answer.no_answer_reason
-            ? t.noAnswer[answer.no_answer_reason]
-            : t.noAnswer.fallback}
+          {reason ? t.noAnswer[reason] : t.noAnswer.fallback}
         </p>
+        {canRephrase && (
+          <p className="mt-2 text-xs text-neutral-500">{t.noAnswer.hint}</p>
+        )}
       </section>
     );
   }
