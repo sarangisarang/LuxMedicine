@@ -35,6 +35,14 @@
       ]
     }
   ],
+  "roles": {
+    "realm": [
+      {
+        "name": "clinic-admin",
+        "description": "May mint registration invites for their own clinic (#51). An invite opens the tenant boundary, so this is held apart from an ordinary clinician."
+      }
+    ]
+  },
   "users": [
     {
       "username": "dr.smith",
@@ -44,6 +52,7 @@
       "firstName": "Ada",
       "lastName": "Smith",
       "attributes": { "clinic_id": ["clinic-demo"] },
+      "realmRoles": ["clinic-admin"],
       "credentials": [{ "type": "password", "value": "dev-password", "temporary": false }]
     }
   ]

@@ -75,6 +75,15 @@ class Clinician:
     email: str | None = None
     name: str | None = None
 
+    # Realm roles the token carries (Keycloak's realm_access.roles). Authorisation, not
+    # identity: which clinics a clinician may act in is clinic_id; what they may DO is here.
+    # #51 gates minting invites on "clinic-admin", because an invite opens the tenant boundary
+    # and that is an administrative act, not a thing any logged-in clinician should do.
+    roles: frozenset[str] = frozenset()
+
+    def has_role(self, role: str) -> bool:
+        return role in self.roles
+
 
 class _JwksCache:
     """The issuer's public keys, cached, with rotation handled.
@@ -238,11 +247,18 @@ async def verify_token(token: str, settings: Settings) -> Clinician:
             ),
         )
 
+    # realm_access.roles, defaulted to empty — a token with no roles is a clinician who can
+    # read but not administer, never an error. Keycloak places realm_access in the access
+    # token by default, so no mapper is needed for this the way clinic_id needed one.
+    realm_access = claims.get("realm_access") or {}
+    roles = frozenset(r for r in (realm_access.get("roles") or []) if isinstance(r, str))
+
     return Clinician(
         actor_id=subject,
         clinic_id=clinic,
         email=claims.get("email"),
         name=claims.get("name"),
+        roles=roles,
     )
 
 
@@ -261,3 +277,21 @@ async def current_clinician(
             headers={"WWW-Authenticate": "Bearer"},
         )
     return await verify_token(credentials.credentials, settings)
+
+
+CLINIC_ADMIN_ROLE = "clinic-admin"
+
+
+async def require_clinic_admin(
+    clinician: Clinician = Depends(current_clinician),
+) -> Clinician:
+    """A verified clinician who also holds `clinic-admin` (#51). 403, not 401: they ARE
+    authenticated — they are just not allowed to open the tenant boundary by minting an invite.
+    Authorisation on top of authentication, kept a separate dependency so an endpoint asks for
+    exactly the level it needs."""
+    if not clinician.has_role(CLINIC_ADMIN_ROLE):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"this action requires the {CLINIC_ADMIN_ROLE} role",
+        )
+    return clinician

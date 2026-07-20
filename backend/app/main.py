@@ -4,7 +4,7 @@ from fastapi import Depends, FastAPI, Response, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api import documents, erasure, queries, translation
+from app.api import documents, erasure, invites, queries, translation
 from app.core.auth import Clinician, current_clinician
 from app.core.config import get_settings
 from app.db.session import get_session, get_tenant_session
@@ -68,6 +68,7 @@ app.include_router(documents.router)
 app.include_router(queries.router)
 app.include_router(erasure.router)
 app.include_router(translation.router)
+app.include_router(invites.router)
 
 
 @app.get("/health")
