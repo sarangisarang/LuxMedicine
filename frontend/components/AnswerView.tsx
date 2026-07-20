@@ -2,6 +2,7 @@
 
 import type { AnswerPayload, Citation } from "@/lib/api";
 
+import { CombinedText } from "./CombinedText";
 import { useT } from "./LanguageContext";
 import { SourceGroupCard } from "./SourceGroupCard";
 
@@ -46,6 +47,11 @@ export function AnswerView({
       {answer.groups.map((group, i) => (
         <SourceGroupCard key={i} group={group} onOpenSource={onOpenSource} />
       ))}
+
+      {/* All quotes gathered into one readable block — the same verbatim text, never a
+          summary. Rendered last so the per-source cards, with their translations and staleness
+          banners, remain the primary view. */}
+      <CombinedText answer={answer} />
     </section>
   );
 }

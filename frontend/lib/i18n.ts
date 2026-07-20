@@ -42,6 +42,13 @@ type Strings = {
   rejected: (n: number) => string;
   superseded: (label: string | null) => string;
   unreadable: (pages: string) => string;
+  combined: {
+    heading: string;
+    // The load-bearing label: this is NOT a summary. It is the same verbatim quotes gathered,
+    // each still its own span with its own page — never joined into one statement.
+    note: string;
+    pageRef: (org: string, pages: string) => string;
+  };
   pdf: {
     cited: string;
     prev: string;
@@ -87,6 +94,11 @@ export const STRINGS: Record<UiLang, Strings> = {
       label ? `This edition has been superseded by ${label}.` : "This edition has been superseded.",
     unreadable: (pages) =>
       `Pages ${pages} of this document could not be read and are not reflected above.`,
+    combined: {
+      heading: "Full text — the guideline's own words, gathered",
+      note: "The same verbatim quotes above, collected here to read in one place. Not a summary and not joined into a single statement — each is a separate span, kept with its page.",
+      pageRef: (org, pages) => `${org} · ${pages}`,
+    },
     pdf: {
       cited: "cited",
       prev: "‹ Prev",
@@ -134,6 +146,12 @@ export const STRINGS: Record<UiLang, Strings> = {
         : "Diese Ausgabe wurde ersetzt.",
     unreadable: (pages) =>
       `Die Seiten ${pages} dieses Dokuments konnten nicht gelesen werden und sind oben nicht berücksichtigt.`,
+    // TODO(review): clinician-facing medical German — have a native speaker check before deploy.
+    combined: {
+      heading: "Gesamter Text — die Worte der Leitlinie, gesammelt",
+      note: "Dieselben wörtlichen Zitate von oben, hier an einer Stelle gesammelt. Keine Zusammenfassung und nicht zu einer einzigen Aussage verbunden — jedes ist ein eigener Abschnitt, mit seiner Seite.",
+      pageRef: (org, pages) => `${org} · ${pages}`,
+    },
     pdf: {
       cited: "zitiert",
       prev: "‹ Zurück",
@@ -177,6 +195,11 @@ export const STRINGS: Record<UiLang, Strings> = {
       label ? `ეს გამოცემა შეცვლილია ${label}-ით.` : "ეს გამოცემა შეცვლილია.",
     unreadable: (pages) =>
       `ამ დოკუმენტის გვერდები ${pages} ვერ წაიკითხა და ზემოთ არ არის ასახული.`,
+    combined: {
+      heading: "სრული ტექსტი — გაიდლაინის სიტყვები, თავმოყრილი",
+      note: "ზემოთ მოცემული იგივე ვერბატიმ ციტატები, ერთ ადგილას შეკრებილი წასაკითხად. არა შეჯამება და არა ერთ დებულებად გაერთიანებული — თითოეული ცალკე ნაწყვეტია, თავის გვერდთან ერთად.",
+      pageRef: (org, pages) => `${org} · ${pages}`,
+    },
     pdf: {
       cited: "ციტირებულია",
       prev: "‹ წინა",
