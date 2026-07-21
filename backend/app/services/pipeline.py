@@ -37,6 +37,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.vocabulary import Sector
 from app.schemas.answer import AnswerPayload
 from app.services.answering import Extractor, assemble, render_passages
 from app.services.audit import append_audit_entry, make_query
@@ -71,6 +72,7 @@ async def answer_query(
     clinic_id: str,
     embedder: Embedder,
     extractor: Extractor,
+    sector: Sector = Sector.MEDICAL,
     limit: int = DEFAULT_LIMIT,
     include_archived: bool = False,
     language: str | None = None,
@@ -80,9 +82,22 @@ async def answer_query(
     `actor_id` must come from a verified identity — see the module docstring. Nothing in
     here checks that, because nothing in here can: it is the caller's job, and #30 is
     what makes a caller capable of it.
+
+    `sector` defaults here although `hybrid_search` refuses to default it, and the
+    asymmetry is the point. Retrieval is the layer where a mistake means the wrong corpus
+    answers, so it makes the caller say which one. By the time a default is applied it can
+    only be MEDICAL, and forgetting to pass a sector therefore fails in the harmless
+    direction: a Baurecht question searches the clinical corpus and returns nothing, which
+    is visible immediately. The dangerous direction — a statute quoted to a clinician —
+    is not reachable from any value this parameter can take.
     """
     hits = await hybrid_search(
-        session, question, embedder, limit=limit, include_archived=include_archived
+        session,
+        question,
+        embedder,
+        sector=sector,
+        limit=limit,
+        include_archived=include_archived,
     )
 
     # Close the read transaction before the slow call: it pins a pooled connection for
@@ -91,7 +106,7 @@ async def answer_query(
     await session.commit()
 
     passages = render_passages(hits)
-    prompt = _prompt_text(question, passages)
+    prompt = _prompt_text(question, passages, sector)
 
     error: str | None = None
     try:
@@ -100,7 +115,7 @@ async def answer_query(
         # loop for every request in the process, not just this one. The protocol stays
         # synchronous so a fake extractor is three lines — the offloading is this
         # module's problem, not the implementer's.
-        result = await asyncio.to_thread(extractor.extract, question, passages)
+        result = await asyncio.to_thread(extractor.extract, question, passages, sector)
     except Exception as exc:  # noqa: BLE001 — the failure is recorded, then re-raised
         # A failed extraction is still something the clinician asked and did not get an
         # answer to. Recording it is the difference between "the corpus is silent" and
@@ -159,16 +174,21 @@ async def answer_query(
     )
 
 
-def _prompt_text(question: str, passages: list[str]) -> str:
+def _prompt_text(question: str, passages: list[str], sector: Sector) -> str:
     """The prompt as the extractor renders it.
 
     Imported lazily: the Claude adapter's module pulls in nothing at import time, but
     keeping the dependency at call scope means a different extractor can supply its own
     rendering without this module knowing which one is in use.
-    """
-    from app.services.extractor_claude import SYSTEM_PROMPT, render_prompt
 
-    return f"{SYSTEM_PROMPT}\n\n{render_prompt(question, passages)}"
+    Takes the sector so the audit records the prompt that was actually sent. A trail that
+    stores the clinical prompt beside an answer produced under the legal one is not a
+    record of what happened, and the discrepancy would only ever be found by someone
+    disputing the answer.
+    """
+    from app.services.extractor_claude import render_prompt, system_prompt_for
+
+    return f"{system_prompt_for(sector)}\n\n{render_prompt(question, passages)}"
 
 
 def _model_name(extractor: Extractor) -> str:

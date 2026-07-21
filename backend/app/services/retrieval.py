@@ -7,6 +7,15 @@ makes "not yet indexed" and "no longer current" different from "nothing to say".
 Archived versions stay reachable by explicit request. That is not a convenience: it is
 how an answer given in 2024 gets re-checked in 2026 against the edition it actually
 cited.
+
+**Every search is scoped to one sector, and there is no way to ask for more than one.**
+`sector` is a required argument with no default: the corpus holds clinical guidance and
+German law side by side, the embedder has no idea they are different kinds of thing, and
+this system quotes verbatim whatever retrieval hands it. A statute surfacing in a
+clinical result set would be returned as a real quote with a real citation and a real
+page number — every provenance check would pass, because the provenance is genuine. Only
+the relevance is catastrophic. Defaulting the argument would make that outcome reachable
+by forgetting to type something, so it is not defaulted.
 """
 
 from __future__ import annotations
@@ -17,6 +26,7 @@ from dataclasses import dataclass
 from sqlalchemy import Select, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.vocabulary import Sector
 from app.models.chunk import TEXT_SEARCH_CONFIG, Chunk
 from app.models.document import Document, DocumentVersion, VersionStatus
 from app.services.embedding import Embedder
@@ -100,7 +110,7 @@ def _search_hit(row, labels: dict, **extra) -> SearchHit:
     )
 
 
-def _base_query(embedding: list[float], *, include_archived: bool) -> Select:
+def _base_query(embedding: list[float], *, sector: Sector, include_archived: bool) -> Select:
     statuses = (
         [VersionStatus.ACTIVE, VersionStatus.ARCHIVED] if include_archived else [VersionStatus.ACTIVE]
     )
@@ -125,6 +135,8 @@ def _base_query(embedding: list[float], *, include_archived: bool) -> Select:
         .join(Document, DocumentVersion.document_id == Document.id)
         # PENDING is never included, in either mode: those chunks do not exist.
         .where(DocumentVersion.status.in_(statuses))
+        # One sector per search, never a union — see the module docstring.
+        .where(Document.sector == str(sector))
         # A bibliography entry is not guidance and must not source an answer (#50).
         .where(Chunk.is_reference.is_(False))
         .order_by(Chunk.embedding.cosine_distance(embedding))
@@ -136,6 +148,7 @@ async def search(
     query_text: str,
     embedder: Embedder,
     *,
+    sector: Sector,
     limit: int = 10,
     include_archived: bool = False,
 ) -> list[SearchHit]:
@@ -162,7 +175,11 @@ async def search(
     # It stays a real risk at scale, when the table is large enough for HNSW *and*
     # archived chunks dominate — plausible after years of supersession. Tracked rather
     # than pre-solved; the shortfall test below is what will notice.
-    rows = (await session.execute(_base_query(embedding, include_archived=include_archived).limit(limit))).all()
+    rows = (
+        await session.execute(
+            _base_query(embedding, sector=sector, include_archived=include_archived).limit(limit)
+        )
+    ).all()
 
     labels = await latest_labels(session, [row.document_version_id for row in rows])
 
@@ -180,11 +197,16 @@ RRF_K = 60
 CANDIDATE_DEPTH = 50
 
 _HYBRID_SQL = """
+-- Both halves draw from `searchable`, so the sector filter belongs here and only here:
+-- one clause, no way for the vector side and the lexical side to disagree about what
+-- the corpus is.
 WITH searchable AS (
     SELECT c.id, c.embedding, c.content_tsv
     FROM chunks c
     JOIN document_versions v ON c.document_version_id = v.id
+    JOIN documents d ON v.document_id = d.id
     WHERE v.status = ANY(CAST(:statuses AS version_status[]))
+      AND d.sector = :sector
       AND NOT c.is_reference
 ),
 vector_hits AS (
@@ -217,6 +239,7 @@ async def hybrid_search(
     query_text: str,
     embedder: Embedder,
     *,
+    sector: Sector,
     limit: int = 10,
     include_archived: bool = False,
 ) -> list[SearchHit]:
@@ -251,6 +274,7 @@ async def hybrid_search(
             text(_HYBRID_SQL),
             {
                 "statuses": statuses,
+                "sector": str(sector),
                 "query_vector": str(embedding),
                 "query_text": expansion.expanded,
                 "config": TEXT_SEARCH_CONFIG,

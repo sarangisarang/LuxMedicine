@@ -20,6 +20,27 @@ B2B (#31) brings local protocols with it — at which point this becomes an
 from enum import StrEnum
 
 
+class Sector(StrEnum):
+    """Which body of knowledge a document belongs to.
+
+    This is a retrieval boundary, not a label. A question about heart failure must never
+    retrieve §35 HOAI, and a question about Honorarzonen must never retrieve a cardiology
+    guideline — not because the prompt discourages it, but because the SQL never returns
+    the other sector's chunks. Mixing them is not merely irrelevant: an extractive system
+    quotes whatever it is handed, so a stray statute in a clinical result set is a
+    verbatim, correctly-cited, and completely wrong answer.
+
+    A document's sector is *derived* from its issuing organisation (see
+    `IssuingOrg.sector`) rather than passed in beside it. Two independent fields that must
+    agree are two fields that will eventually disagree, and the disagreement would be
+    invisible — the document would simply stop being findable, or start answering the
+    wrong questions.
+    """
+
+    MEDICAL = "medical"
+    LEGAL = "legal"
+
+
 class IssuingOrg(StrEnum):
     # Cardiology
     ESC = "ESC"  # European Society of Cardiology
@@ -41,6 +62,30 @@ class IssuingOrg(StrEnum):
     KDIGO = "KDIGO"  # Kidney Disease: Improving Global Outcomes
     GINA = "GINA"  # Global Initiative for Asthma
 
+    # --- Legal ---------------------------------------------------------------
+    # German federal law as published by the Bundesamt für Justiz on
+    # gesetze-im-internet.de. One organisation for all of it, not one per statute, and
+    # that is deliberate: conflict detection (#23) escalates when a result set spans two
+    # organisations, and HOAI, VgV and GWB do not contradict each other — they compose.
+    # Splitting them would fire a comparison pass on every question that touches both a
+    # fee schedule and the procurement law it sits under, and present a hierarchy as a
+    # disagreement.
+    #
+    # Only sources free of copyright by §5 UrhG (amtliche Werke) are filed here. A
+    # publisher's Textausgabe of the same statute is a copyrighted compilation and does
+    # not become an amtliches Werk by containing one.
+    BUNDESRECHT = "Bundesrecht"
+
+    @property
+    def sector(self) -> Sector:
+        """Which corpus this organisation's documents belong to.
+
+        Defaults to MEDICAL: the enum was medical-only for its whole life, and a new
+        entry that forgets to declare itself should land in the sector the system was
+        built for rather than silently leak into the other one.
+        """
+        return _SECTORS.get(self, Sector.MEDICAL)
+
     @property
     def region(self) -> str | None:
         """Best-effort default, overridable per document.
@@ -50,6 +95,11 @@ class IssuingOrg(StrEnum):
         so it is worth defaulting rather than leaving blank.
         """
         return _REGIONS.get(self)
+
+
+_SECTORS: dict[IssuingOrg, Sector] = {
+    IssuingOrg.BUNDESRECHT: Sector.LEGAL,
+}
 
 
 _REGIONS: dict[IssuingOrg, str] = {
@@ -67,4 +117,5 @@ _REGIONS: dict[IssuingOrg, str] = {
     IssuingOrg.WHO: "Global",
     IssuingOrg.KDIGO: "Global",
     IssuingOrg.GINA: "Global",
+    IssuingOrg.BUNDESRECHT: "DE",
 }

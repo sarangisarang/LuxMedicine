@@ -21,6 +21,7 @@ import uuid as uuid_mod
 
 import pytest
 
+from app.core.vocabulary import Sector
 from app.services.extraction import UNRESOLVED_GLYPH
 
 KDIGO = pathlib.Path(__file__).resolve().parents[1] / "storage" / "kdigo_2012_ckd.pdf"
@@ -420,7 +421,7 @@ async def test_the_damage_survives_the_whole_path_to_the_answer(session):
     await session.flush()
 
     try:
-        hits = await hybrid_search(session, "chronic kidney disease", embedder, limit=200)
+        hits = await hybrid_search(session, "chronic kidney disease", embedder, limit=200, sector=Sector.MEDICAL)
         mine = [h for h in hits if h.document_version_id == version.id]
         assert mine, "the freshly indexed version is not searchable"
 
@@ -490,7 +491,9 @@ async def test_both_retrieval_paths_carry_it(session):
 
     try:
         for finder in (search, hybrid_search):
-            hits = await finder(session, "chronic kidney disease", embedder, limit=400)
+            hits = await finder(
+                session, "chronic kidney disease", embedder, sector=Sector.MEDICAL, limit=400
+            )
             mine = [h for h in hits if h.document_version_id == version.id]
             assert mine, f"{finder.__name__} did not reach the version"
             assert mine[0].unreadable_pages, f"{finder.__name__} dropped unreadable_pages"

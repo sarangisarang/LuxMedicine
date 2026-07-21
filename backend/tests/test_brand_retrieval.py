@@ -26,6 +26,7 @@ import uuid
 import pytest
 from sqlalchemy import insert
 
+from app.core.vocabulary import Sector
 from app.core.config import get_settings
 from app.models.alias import DrugAlias
 from app.models.chunk import Chunk
@@ -117,7 +118,7 @@ async def distance_to(session, query: str, embedder, chunk_id: uuid.UUID) -> flo
     Distance is the thing the fake actually models: an expanded query points along
     enalapril's axis, an unexpanded one does not. That difference is arithmetic, not luck.
     """
-    hits = await hybrid_search(session, query, embedder, limit=SEARCH_DEPTH)
+    hits = await hybrid_search(session, query, embedder, limit=SEARCH_DEPTH, sector=Sector.MEDICAL)
     for hit in hits:
         if hit.chunk_id == chunk_id:
             return hit.distance

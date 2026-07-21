@@ -115,10 +115,19 @@ async def ingest(
             print(f"registered {title!r} {version_label} as {version_id} (pending)")
 
         async with maker() as session:
-            from app.services.embedding import E5Embedder
+            from app.services.embedding import make_embedder
 
+            # make_embedder(), not E5Embedder() — this used to hardcode the fp32
+            # sentence-transformers model while the deployment queries with the int8 ONNX
+            # one. Ingesting on that box would have written fp32 vectors into a corpus
+            # searched by int8 queries: not an error, just quietly worse retrieval that
+            # no test looks at, because both sides produce a valid 1024-dim vector and
+            # the cosine distance between them is a plausible-looking number.
+            #
+            # The corpus and the query must come from the same weights. EMBEDDING_BACKEND
+            # decides which, and now it decides it here too.
             print("loading the embedder (local, no API quota)…")
-            embedder = E5Embedder()
+            embedder = make_embedder()
             print("extracting, chunking, embedding — minutes for a long guideline…")
             result = await index_version(session, version_id, embedder)
             await session.commit()

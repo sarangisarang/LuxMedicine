@@ -22,6 +22,7 @@ until then this runs wherever Anthropic routes it.
 
 from __future__ import annotations
 
+from app.core.vocabulary import Sector
 from app.services.answering import ExtractionResult
 
 DEFAULT_MODEL = "claude-opus-4-8"
@@ -58,6 +59,70 @@ than no answer, because the clinician cannot tell the difference.
 5. Never write anything that is not a quote. You have no field for commentary and no \
 reason to want one.\
 """
+
+# The legal corpus gets its own wording, and SYSTEM_PROMPT above is left byte-identical.
+#
+# That is not tidiness, it is the only way to keep #38's measurement worth anything. Four
+# wordings of the clinical prompt were run over the full 26-question set and each one
+# bought a case and sold another while the aggregate sat still; the note above records
+# which. Editing that text to make it domain-neutral — "guidelines" to "sources",
+# "clinician" to "user" — would invalidate every one of those runs, and the damage would
+# be invisible, because the aggregate is exactly what does not move.
+#
+# So this is a copy with the domain nouns changed and the five rules identical in order
+# and force. The rules are about extraction, not about medicine; what changes is what the
+# model is told it is reading.
+#
+# Rule 3's example changes with it. In the clinical prompt it is a dose qualified by a
+# condition; here it is a fee qualified by an Honorarzone, because that is the same
+# failure in this corpus — a §-paragraph quoted without the Absatz that conditions it
+# reads as unconditional law, and a verbatim quote is exactly how it would arrive.
+LEGAL_SYSTEM_PROMPT = """\
+You are the extraction step of a legal search engine over German statutes and \
+ordinances. You do not advise, interpret, apply the law to a situation, or summarise. \
+You select spans of text.
+
+You will be given a question and numbered passages from German legal texts. Return the \
+spans of those passages that answer the question, each with the number of the passage it \
+came from.
+
+Rules, in order of importance:
+
+1. Every quote must be copied character-for-character from the passage you cite. Do not \
+paraphrase, do not correct spelling or grammar, do not modernise wording, do not join \
+distant spans with an ellipsis. A quote that is not present verbatim in its passage is \
+discarded, so an inexact quote is a lost answer, not a helpful approximation.
+
+2. Two separate spans are two entries, even from the same passage. A span is contiguous.
+
+3. Quote only what answers the question. If a passage conditions a rule — on an \
+Honorarzone, a threshold value, a Leistungsphase, an exception in a following Absatz — \
+that condition is part of the answer. Include it in the same span rather than quoting \
+the bare rule, which would read as unconditional.
+
+4. If none of the passages answer the question, return no quotes. An empty answer is \
+correct and expected. A quote from a passage that does not answer the question is worse \
+than no answer, because the reader cannot tell the difference.
+
+5. Never write anything that is not a quote. You have no field for commentary and no \
+reason to want one.\
+"""
+
+
+def system_prompt_for(sector: Sector) -> str:
+    """The prompt for this corpus.
+
+    A lookup rather than an if-chain so that a sector added later without a prompt fails
+    loudly at the KeyError instead of silently being handed the clinical wording and
+    asked to read statutes as if they were guidelines.
+    """
+    return _PROMPTS[sector]
+
+
+_PROMPTS: dict[Sector, str] = {
+    Sector.MEDICAL: SYSTEM_PROMPT,
+    Sector.LEGAL: LEGAL_SYSTEM_PROMPT,
+}
 
 # **There is no rule here about junk input, and that is a measured decision (#38).**
 #
@@ -136,14 +201,16 @@ class ClaudeExtractor:
         # somewhere it must not go — see the module docstring.
         self._inference_geo = inference_geo
 
-    def extract(self, question: str, passages: list[str]) -> ExtractionResult | None:
+    def extract(
+        self, question: str, passages: list[str], sector: Sector = Sector.MEDICAL
+    ) -> ExtractionResult | None:
         if not passages:
             return ExtractionResult(quotes=[])
 
         request: dict = {
             "model": self.model,
             "max_tokens": self._max_tokens,
-            "system": SYSTEM_PROMPT,
+            "system": system_prompt_for(sector),
             # Adaptive must be set explicitly on Opus 4.8 — omitting the field runs
             # without thinking at all.
             "thinking": {"type": "adaptive"},

@@ -51,7 +51,8 @@ import os
 
 from app.core.config import get_settings
 from app.services.answering import ExtractionResult
-from app.services.extractor_claude import SYSTEM_PROMPT, render_prompt
+from app.core.vocabulary import Sector
+from app.services.extractor_claude import render_prompt, system_prompt_for
 
 # Gemini 1.5 is gone from the model list and 2.0 Flash is shut down. 3.5 Flash is the
 # current stable flagship and is *not* the default here, because the key this was
@@ -192,7 +193,9 @@ class GeminiExtractor:
                 "documentation says you cannot know where processing happens."
             )
 
-    def extract(self, question: str, passages: list[str]) -> ExtractionResult | None:
+    def extract(
+        self, question: str, passages: list[str], sector: Sector = Sector.MEDICAL
+    ) -> ExtractionResult | None:
         # The boundary where clinical text leaves this process, and therefore the only
         # place the residency promise can actually be kept.
         #
@@ -224,7 +227,7 @@ class GeminiExtractor:
             model=self.model,
             contents=render_prompt(question, passages),
             config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
+                system_instruction=system_prompt_for(sector),
                 temperature=self._temperature,
                 max_output_tokens=self._max_output_tokens,
                 http_options=types.HttpOptions(

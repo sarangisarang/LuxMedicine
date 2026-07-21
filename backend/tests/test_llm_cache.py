@@ -8,6 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.core.config import Settings
+from app.core.vocabulary import Sector
 from app.services.answering import ExtractionResult, SelectedQuote
 from app.services.llm_cache import (
     CachingExtractor,
@@ -24,10 +25,14 @@ QUESTION = "Should people with asthma avoid beta-blockers?"
 class CountingExtractor:
     def __init__(self, result: ExtractionResult | None) -> None:
         self.calls = 0
+        self.sectors: list[Sector] = []
         self._result = result
 
-    def extract(self, question: str, passages: list[str]) -> ExtractionResult | None:
+    def extract(
+        self, question: str, passages: list[str], sector=Sector.MEDICAL
+    ) -> ExtractionResult | None:
         self.calls += 1
+        self.sectors.append(sector)
         return self._result
 
 

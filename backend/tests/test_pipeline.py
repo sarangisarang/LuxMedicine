@@ -16,6 +16,7 @@ import pytest
 from sqlalchemy import insert, select
 
 from app.core.config import get_settings
+from app.core.vocabulary import Sector
 from app.models.audit import AuditLog
 from app.models.chunk import Chunk
 from app.models.document import Document, DocumentVersion, VersionStatus
@@ -77,9 +78,11 @@ class ScriptedExtractor:
         self._quotes = quotes
         self._raises = raises
         self.calls: list[tuple[str, list[str]]] = []
+        self.sectors: list[Sector] = []
 
-    def extract(self, question: str, passages: list[str]):
+    def extract(self, question: str, passages: list[str], sector=Sector.MEDICAL):
         self.calls.append((question, list(passages)))
+        self.sectors.append(sector)
         if self._raises is not None:
             raise self._raises
         if self._quotes is None:
@@ -375,7 +378,7 @@ class ConcurrencyProbe:
         self.active = 0
         self.peak = 0
 
-    def extract(self, question: str, passages: list[str]):
+    def extract(self, question: str, passages: list[str], sector=Sector.MEDICAL):
         with self._lock:
             self.active += 1
             self.peak = max(self.peak, self.active)

@@ -12,6 +12,7 @@ import uuid
 import pytest
 from sqlalchemy import insert
 
+from app.core.vocabulary import Sector
 from app.core.config import get_settings
 from app.models.chunk import Chunk
 from app.models.document import Document, DocumentVersion, VersionStatus
@@ -153,7 +154,7 @@ async def test_an_archived_hit_names_the_current_edition(session, embedder, guid
     await supersede(session, version_id=versions["2021"].id, superseded_by_id=versions["2023"].id)
     await session.commit()
 
-    hits = await search(session, "warfarin", embedder, limit=SEARCH_DEPTH, include_archived=True)
+    hits = await search(session, "warfarin", embedder, limit=SEARCH_DEPTH, include_archived=True, sector=Sector.MEDICAL)
     by_version = {h.document_version_id: h for h in hits}
 
     old = by_version[versions["2019"].id]
@@ -173,7 +174,12 @@ async def test_hybrid_search_reports_staleness_too(session, embedder, guideline)
     await session.commit()
 
     hits = await hybrid_search(
-        session, "warfarin monitoring", embedder, limit=SEARCH_DEPTH, include_archived=True
+        session,
+        "warfarin monitoring",
+        embedder,
+        sector=Sector.MEDICAL,
+        limit=SEARCH_DEPTH,
+        include_archived=True,
     )
     by_version = {h.document_version_id: h for h in hits}
 
@@ -185,7 +191,7 @@ async def test_a_current_hit_carries_no_warning(session, embedder, guideline):
     banner would fire on current guidance and clinicians would learn to close it."""
     _, versions = guideline
 
-    hits = await search(session, "warfarin", embedder, limit=SEARCH_DEPTH)
+    hits = await search(session, "warfarin", embedder, limit=SEARCH_DEPTH, sector=Sector.MEDICAL)
 
     for hit in (h for h in hits if h.document_version_id in {v.id for v in versions.values()}):
         assert not hit.is_superseded

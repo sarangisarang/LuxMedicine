@@ -54,6 +54,12 @@ _UNITS = re.compile(
     re.IGNORECASE,
 )
 
+# Any letter, not [A-Za-z]: the legal corpus is German and the clinical one is
+# multilingual, so an ASCII-only test would reject "Änderung" and "Übersicht" as
+# wordless and quietly resurrect the bug it exists to fix — on exactly the headings a
+# German statute uses most.
+_HAS_LETTER = re.compile(r"[^\W\d_]", re.UNICODE)
+
 
 @dataclass(frozen=True)
 class TextChunk:
@@ -94,6 +100,22 @@ def heading_of(line: Line, *, body_font_size: float) -> str | None:
 
     # The one that matters: "2.5 mg ..." dies here even when bold and short.
     if _UNITS.match(remainder):
+        return None
+
+    # A heading says something. This one is here because HOAI's Honorartafeln broke it:
+    # a fee row reads "25 000 3 120 3 657 3 657 4 339 ...", which is short, starts with a
+    # number, carries no unit token, and is typeset larger than the surrounding body — so
+    # it satisfied every other condition and became a section label. 253 of 296 chunks
+    # came back labelled with a row of digits, meaning every citation the legal corpus
+    # produced would have named a nonsense section.
+    #
+    # Requiring a letter is narrow enough to be safe in the clinical corpus too: a real
+    # heading has words in it, in every document either corpus holds. `table_extraction`
+    # already applies exactly this test to a candidate column label for the same reason.
+    #
+    # This does not make the fee tables *quotable* — that is #48's problem and the table
+    # guard's job. It only stops them being mistaken for structure.
+    if not _HAS_LETTER.search(remainder):
         return None
 
     # Typography. Strictly larger than body, or bold at body size — some publishers set

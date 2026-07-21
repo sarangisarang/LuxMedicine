@@ -86,6 +86,12 @@ async def _get_or_create_document(session: AsyncSession, req: RegistrationReques
             # caller only re-opens the inconsistency the IssuingOrg enum closes:
             # "EU" and "Europe" and "europe" for the same organisation.
             region=req.issuing_org.region,
+            # Derived for the same reason region is, with more at stake: sector is a
+            # retrieval boundary, so a caller able to set it is a caller able to file
+            # HOAI as medical and have it quoted back to a clinician. There is no
+            # field on RegistrationRequest to hold it — the same control the query
+            # endpoint uses for actor_id.
+            sector=str(req.issuing_org.sector),
             guideline_type=req.guideline_type,
         )
         .on_conflict_do_nothing(constraint="uq_document_clinic_org_title")

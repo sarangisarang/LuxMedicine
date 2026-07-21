@@ -55,7 +55,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app.services.answering import ExtractionResult, Extractor
-from app.services.extractor_claude import SYSTEM_PROMPT as EXTRACTION_PROMPT
+from app.core.vocabulary import Sector
+from app.services.extractor_claude import system_prompt_for
 from app.services.translation import SYSTEM_PROMPT as TRANSLATION_PROMPT
 from app.services.translation import MachineTranslation, Translator
 
@@ -116,9 +117,25 @@ class CachingExtractor:
         self._cache = cache
         self._model = model
 
-    def extract(self, question: str, passages: list[str]) -> ExtractionResult | None:
+    def extract(
+        self, question: str, passages: list[str], sector: Sector = Sector.MEDICAL
+    ) -> ExtractionResult | None:
+        # The sector reaches the key through the prompt fingerprint rather than as a part
+        # of its own, and that is not a shortcut — it is the rule this cache already
+        # states: the reply is a function of the instructions as much as of the passages,
+        # so two different instruction sets must be two different keys. The clinical and
+        # legal prompts are different text, so they already fingerprint apart.
+        #
+        # Adding the sector as a separate part as well would key the same call twice on
+        # the same fact, and would go quietly wrong the day a sector is added that shares
+        # another's prompt: two entries where the answer is identical, one of them always
+        # cold. One source of truth for "what was the model told".
         key = cache_key(
-            "extract", self._model, prompt_fingerprint(EXTRACTION_PROMPT), question, *passages
+            "extract",
+            self._model,
+            prompt_fingerprint(system_prompt_for(sector)),
+            question,
+            *passages,
         )
         if (hit := self._cache.get(key)) is not None:
             # `None` is a real answer — the model declining is a result, not an absence — so
@@ -127,7 +144,7 @@ class CachingExtractor:
                 return None
             return ExtractionResult.model_validate(hit["result"])
 
-        result = self._inner.extract(question, passages)
+        result = self._inner.extract(question, passages, sector)
         self._cache.put(
             key,
             {"declined": True} if result is None else {"result": result.model_dump(mode="json")},

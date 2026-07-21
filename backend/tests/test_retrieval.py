@@ -17,6 +17,7 @@ import uuid
 import pytest
 from sqlalchemy import insert
 
+from app.core.vocabulary import Sector
 from app.core.config import get_settings
 from app.models.chunk import Chunk
 from app.models.document import Document, DocumentVersion, VersionStatus
@@ -135,7 +136,7 @@ async def test_a_query_finds_the_matching_chunk(session, embedder):
         embedder=embedder,
     )
 
-    hits = await search(session, "enalapril dose", embedder, limit=SEARCH_DEPTH)
+    hits = await search(session, "enalapril dose", embedder, limit=SEARCH_DEPTH, sector=Sector.MEDICAL)
 
     # Both of this version's chunks come back — a wide limit returns everything it can.
     # What matters is the order: the matching one first, the asthma one behind it.
@@ -158,7 +159,7 @@ async def test_pending_versions_are_never_searched(session, embedder):
         embedder=embedder,
     )
 
-    hits = await search(session, "enalapril", embedder, limit=SEARCH_DEPTH)
+    hits = await search(session, "enalapril", embedder, limit=SEARCH_DEPTH, sector=Sector.MEDICAL)
     assert version.id not in versions_in(hits)
 
 
@@ -173,7 +174,7 @@ async def test_archived_versions_are_excluded_by_default(session, embedder):
         embedder=embedder,
     )
 
-    hits = await search(session, "enalapril", embedder, limit=SEARCH_DEPTH)
+    hits = await search(session, "enalapril", embedder, limit=SEARCH_DEPTH, sector=Sector.MEDICAL)
     assert version.id not in versions_in(hits)
 
 
@@ -190,10 +191,10 @@ async def test_archived_versions_are_reachable_on_request(session, embedder):
         embedder=embedder,
     )
 
-    default = await search(session, "enalapril", embedder, limit=SEARCH_DEPTH)
+    default = await search(session, "enalapril", embedder, limit=SEARCH_DEPTH, sector=Sector.MEDICAL)
     assert version.id not in versions_in(default)
 
-    widened = await search(session, "enalapril", embedder, limit=SEARCH_DEPTH, include_archived=True)
+    widened = await search(session, "enalapril", embedder, limit=SEARCH_DEPTH, include_archived=True, sector=Sector.MEDICAL)
     assert version.id in versions_in(widened)
 
 
@@ -210,7 +211,7 @@ async def test_pending_stays_excluded_even_with_archived_included(session, embed
         embedder=embedder,
     )
 
-    hits = await search(session, "enalapril", embedder, limit=SEARCH_DEPTH, include_archived=True)
+    hits = await search(session, "enalapril", embedder, limit=SEARCH_DEPTH, include_archived=True, sector=Sector.MEDICAL)
     assert version.id not in versions_in(hits)
 
 
@@ -230,10 +231,10 @@ async def test_withdrawn_stays_excluded_even_with_archived_included(session, emb
         embedder=embedder,
     )
 
-    default = await search(session, "enalapril", embedder, limit=SEARCH_DEPTH)
+    default = await search(session, "enalapril", embedder, limit=SEARCH_DEPTH, sector=Sector.MEDICAL)
     assert version.id not in versions_in(default)
 
-    widened = await search(session, "enalapril", embedder, limit=SEARCH_DEPTH, include_archived=True)
+    widened = await search(session, "enalapril", embedder, limit=SEARCH_DEPTH, include_archived=True, sector=Sector.MEDICAL)
     assert version.id not in versions_in(widened), "withdrawn must not resurface with archived"
 
 
@@ -254,7 +255,7 @@ async def test_a_hit_carries_everything_a_citation_needs(session, embedder):
         embedder=embedder,
     )
 
-    hits = await search(session, "enalapril", embedder, limit=SEARCH_DEPTH)
+    hits = await search(session, "enalapril", embedder, limit=SEARCH_DEPTH, sector=Sector.MEDICAL)
     hit = next(h for h in hits if h.document_version_id == version.id)
 
     assert hit.issuing_org == "ESC"
@@ -279,7 +280,7 @@ async def test_results_are_ordered_by_distance(session, embedder):
         embedder=embedder,
     )
 
-    hits = await search(session, "enalapril", embedder, limit=SEARCH_DEPTH)
+    hits = await search(session, "enalapril", embedder, limit=SEARCH_DEPTH, sector=Sector.MEDICAL)
 
     assert [h.distance for h in hits] == sorted(h.distance for h in hits), "global ordering"
 
@@ -337,7 +338,7 @@ async def test_a_superseded_version_is_flagged(session, embedder):
     await supersede(session, version_id=old.id, superseded_by_id=new.id)
     await session.commit()
 
-    hits = await search(session, "enalapril", embedder, limit=SEARCH_DEPTH, include_archived=True)
+    hits = await search(session, "enalapril", embedder, limit=SEARCH_DEPTH, include_archived=True, sector=Sector.MEDICAL)
     flags = {h.document_version_id: h.is_superseded for h in hits}
 
     assert flags[old.id] is True, "an archived edition must say so when reached deliberately"
@@ -355,8 +356,8 @@ async def test_limit_is_respected(session, embedder):
         embedder=embedder,
     )
 
-    assert len(await search(session, "enalapril", embedder, limit=5)) == 5
+    assert len(await search(session, "enalapril", embedder, limit=5, sector=Sector.MEDICAL)) == 5
 
 
 async def test_an_empty_corpus_returns_nothing_rather_than_failing(session, embedder):
-    assert await search(session, "something nobody wrote about", embedder, limit=10) is not None
+    assert await search(session, "something nobody wrote about", embedder, limit=10, sector=Sector.MEDICAL) is not None

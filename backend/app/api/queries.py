@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import Clinician, current_clinician
+from app.core.vocabulary import Sector
 from app.db.session import get_tenant_session
 from app.schemas.answer import AnswerPayload
 from app.services.answering import Extractor
@@ -39,6 +40,16 @@ class QueryRequest(BaseModel):
     # the answer's language, never used to filter the corpus. A guideline in another
     # language is still a source.
     language: str | None = Field(default=None, max_length=16)
+
+    # Which corpus to search: clinical guidance or law. Client-settable, unlike
+    # `clinic_id` and `actor_id` — and the difference is worth being explicit about,
+    # because the rule elsewhere in this file is the opposite. Those two are tenancy and
+    # identity: a client that picks them picks whose data it sees and whose name the
+    # audit records. Sector is neither. It selects which shelf the question is asked of,
+    # every user may ask either, and choosing wrong returns nothing rather than
+    # something it should not have. Pydantic rejects any value outside the enum, so the
+    # field cannot become a way to reach an unfiltered search.
+    sector: Sector = Sector.MEDICAL
 
     include_archived: bool = False
     limit: int = Field(default=DEFAULT_LIMIT, ge=1, le=50)
@@ -93,6 +104,7 @@ async def post_query(
         clinic_id=clinician.clinic_id,
         embedder=embedder,
         extractor=extractor,
+        sector=request.sector,
         limit=request.limit,
         include_archived=request.include_archived,
         language=request.language,

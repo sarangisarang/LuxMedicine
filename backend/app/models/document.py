@@ -18,6 +18,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.vocabulary import Sector
 from app.db.base import Base
 
 
@@ -80,6 +81,25 @@ class Document(Base):
     # system where "no clinic" is a real answer rather than a gap; everywhere else a
     # missing clinic is a row row-level security cannot place.
     clinic_id: Mapped[str | None] = mapped_column(String(128), index=True)
+
+    # Which corpus this belongs to — medical guidance or law. Written by ingestion from
+    # the issuing organisation (`IssuingOrg.sector`), never chosen separately, so the two
+    # cannot drift apart.
+    #
+    # NOT NULL with a server default because retrieval filters on it unconditionally: a
+    # NULL sector would be a document no question can reach, which is the same silent
+    # unfindability #10's PENDING status exists to make legible. Every row that predates
+    # this column is medical, and the default says so rather than leaving it to a
+    # backfill someone might skip.
+    #
+    # Stored rather than derived at query time. `issuing_org` is a closed Python enum
+    # today and the module docstring already anticipates it becoming an `organisations`
+    # table; a WHERE clause built from an ever-growing IN-list of legal org names would
+    # have to be rewritten on that day, and would be wrong until someone noticed.
+    sector: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default=Sector.MEDICAL.value, index=True
+    )
+
     region: Mapped[str | None] = mapped_column(String(64), index=True)
     guideline_type: Mapped[str | None] = mapped_column(String(128))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

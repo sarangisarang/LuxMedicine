@@ -23,6 +23,7 @@ import uuid
 import pytest
 from sqlalchemy import insert
 
+from app.core.vocabulary import Sector
 from app.core.config import get_settings
 from app.models.chunk import Chunk
 from app.models.document import Document, DocumentVersion, VersionStatus
@@ -144,7 +145,7 @@ async def test_a_kidney_question_returns_the_kidney_guideline(session, embedder,
     kidney, heart = two_guidelines
 
     hits = _mine(
-        await hybrid_search(session, "how is kidney disease staged", embedder, limit=200),
+        await hybrid_search(session, "how is kidney disease staged", embedder, limit=200, sector=Sector.MEDICAL),
         kidney,
         heart,
     )
@@ -160,7 +161,7 @@ async def test_a_heart_question_returns_the_heart_guideline(session, embedder, t
     kidney, heart = two_guidelines
 
     hits = _mine(
-        await hybrid_search(session, "first-line treatment for heart failure", embedder, limit=200),
+        await hybrid_search(session, "first-line treatment for heart failure", embedder, limit=200, sector=Sector.MEDICAL),
         kidney,
         heart,
     )
@@ -178,7 +179,7 @@ async def test_the_wrong_document_does_not_crowd_the_top(session, embedder, two_
     kidney, heart = two_guidelines
 
     hits = _mine(
-        await hybrid_search(session, "kidney function monitoring", embedder, limit=200),
+        await hybrid_search(session, "kidney function monitoring", embedder, limit=200, sector=Sector.MEDICAL),
         kidney,
         heart,
     )
@@ -199,7 +200,7 @@ async def test_grouping_separates_the_two_organisations(session, embedder, two_g
     kidney, heart = two_guidelines
 
     hits = _mine(
-        await hybrid_search(session, "kidney and heart assessment", embedder, limit=200),
+        await hybrid_search(session, "kidney and heart assessment", embedder, limit=200, sector=Sector.MEDICAL),
         kidney,
         heart,
     )
@@ -217,7 +218,7 @@ async def test_each_document_keeps_its_own_provenance(session, embedder, two_gui
     kidney, heart = two_guidelines
 
     hits = _mine(
-        await hybrid_search(session, "kidney and heart", embedder, limit=200),
+        await hybrid_search(session, "kidney and heart", embedder, limit=200, sector=Sector.MEDICAL),
         kidney,
         heart,
     )

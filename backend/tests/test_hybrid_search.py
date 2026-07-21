@@ -17,6 +17,7 @@ import uuid
 import pytest
 from sqlalchemy import insert
 
+from app.core.vocabulary import Sector
 from app.core.config import get_settings
 from app.models.chunk import Chunk
 from app.models.document import Document, DocumentVersion, VersionStatus
@@ -148,7 +149,7 @@ async def test_the_lexical_half_separates_drugs_the_embedding_cannot(session, em
     scoring them inside 0.055. Hybrid search does not need it to: "enalapril" is a token
     that is present in exactly one passage.
     """
-    hits = await hybrid_search(session, "target dose of enalapril", embedder, limit=1)
+    hits = await hybrid_search(session, "target dose of enalapril", embedder, limit=1, sector=Sector.MEDICAL)
 
     assert len(hits) == 1
     assert "enalapril" in hits[0].content
@@ -163,7 +164,7 @@ async def test_vector_only_search_returns_the_wrong_drug(session, embedder, ace_
     that never mentions it. This is what #18 would be handed — a passage about the wrong
     drug's dose, ranked first, reading as relevant as the right one.
     """
-    hits = await search(session, "target dose of enalapril", embedder, limit=100)
+    hits = await search(session, "target dose of enalapril", embedder, limit=100, sector=Sector.MEDICAL)
     ours = [h for h in hits if h.chunk_id in set(ace_corpus.values())]
 
     assert len(ours) == 5, "all five drugs come back, undifferentiated"
@@ -173,7 +174,7 @@ async def test_vector_only_search_returns_the_wrong_drug(session, embedder, ace_
 
 @pytest.mark.parametrize("drug", DRUGS)
 async def test_every_drug_is_reachable_by_name(session, embedder, ace_corpus, drug):
-    hits = await hybrid_search(session, f"target dose of {drug}", embedder, limit=1)
+    hits = await hybrid_search(session, f"target dose of {drug}", embedder, limit=1, sector=Sector.MEDICAL)
 
     assert drug in hits[0].content
     assert not any(other in hits[0].content for other in DRUGS if other != drug)
@@ -183,7 +184,7 @@ async def test_every_drug_is_reachable_by_name(session, embedder, ace_corpus, dr
 
 
 async def test_a_hit_reports_which_half_found_it(session, embedder, ace_corpus):
-    hits = await hybrid_search(session, "target dose of enalapril", embedder, limit=10)
+    hits = await hybrid_search(session, "target dose of enalapril", embedder, limit=10, sector=Sector.MEDICAL)
     top = hits[0]
 
     assert top.found_by_lexical
@@ -194,7 +195,7 @@ async def test_a_query_with_no_lexical_overlap_still_works(session, embedder, ac
     """A Georgian query shares no tokens with English text, so the lexical half
     contributes nothing. That is expected, not broken — the vector half carries those,
     and the fusion must not collapse when one side returns empty."""
-    hits = await hybrid_search(session, "ჰიპერტენზიის მკურნალობა", embedder, limit=5)
+    hits = await hybrid_search(session, "ჰიპერტენზიის მკურნალობა", embedder, limit=5, sector=Sector.MEDICAL)
 
     assert isinstance(hits, list)
     for hit in hits:
@@ -204,13 +205,13 @@ async def test_a_query_with_no_lexical_overlap_still_works(session, embedder, ac
 async def test_lexical_only_hits_can_surface(session, embedder, ace_corpus):
     """A chunk the embedding ranks nowhere can still reach the answer on the strength of
     an exact term. This is the whole asymmetry hybrid search buys."""
-    hits = await hybrid_search(session, "perindopril", embedder, limit=3)
+    hits = await hybrid_search(session, "perindopril", embedder, limit=3, sector=Sector.MEDICAL)
 
     assert any("perindopril" in h.content for h in hits)
 
 
 async def test_results_are_ordered_by_the_fusion(session, embedder, ace_corpus):
-    hits = await hybrid_search(session, "target dose of enalapril", embedder, limit=10)
+    hits = await hybrid_search(session, "target dose of enalapril", embedder, limit=10, sector=Sector.MEDICAL)
     scores = [h.rrf_score for h in hits]
     assert scores == sorted(scores, reverse=True)
 
@@ -254,10 +255,10 @@ async def test_hybrid_search_respects_pending(session, embedder):
     )
     await session.commit()
 
-    hits = await hybrid_search(session, "enalapril", embedder, limit=50)
+    hits = await hybrid_search(session, "enalapril", embedder, limit=50, sector=Sector.MEDICAL)
     assert version.id not in {h.document_version_id for h in hits}
 
-    widened = await hybrid_search(session, "enalapril", embedder, limit=50, include_archived=True)
+    widened = await hybrid_search(session, "enalapril", embedder, limit=50, include_archived=True, sector=Sector.MEDICAL)
     assert version.id not in {h.document_version_id for h in widened}
 
 
@@ -281,5 +282,5 @@ async def test_free_text_never_reaches_the_tsquery_parser_raw(session, embedder,
     """websearch_to_tsquery, not to_tsquery. A clinician types what they type, and
     to_tsquery raises a syntax error on a stray ampersand — a search box that 500s on an
     apostrophe is not a search box."""
-    hits = await hybrid_search(session, hostile, embedder, limit=5)
+    hits = await hybrid_search(session, hostile, embedder, limit=5, sector=Sector.MEDICAL)
     assert isinstance(hits, list)

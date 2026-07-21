@@ -60,6 +60,31 @@ _SELF_LABELLING = frozenset(
 _MIN_LABEL_CHARS = 4
 
 
+# A numeric grid row: a line that is nothing but numbers. HOAI's Honorartafeln are pages of
+# these — "500 000 34 865 41 530 41 530 48 195 ..." — where the leading number is the
+# anrechenbare Kosten and each following pair is a Honorarzone's von/bis fee. The column
+# headings live in a separate header row that no chunk carries with the body.
+#
+# The rule above cannot see these. It was built for US MEC tables and asks for a *text* row
+# label followed by category cells 1-4; here the row label is itself a number and the cells
+# are five-digit euro amounts, so it scores run=0 and passes the line through. Read against
+# the PDF, that is a quote which tells an architect a fee without saying which Honorarzone it
+# belongs to — the same failure as #48's contraception category, in the corpus where the
+# tables *are* the content.
+#
+# Structural, not a euro-detector: a line of six or more bare numbers and nothing else is a
+# grid row in any document. Real prose does not produce that — a sentence with numbers in it
+# has words between them, and a short "1 2 3" list stays under the threshold. Thousands
+# separators are spaces in German typesetting, so "500 000" is two tokens and the threshold
+# is counted in tokens deliberately: it makes the test *harder* to trip, not easier.
+_NUMERIC_TOKEN = re.compile(r"^[+-]?[\d.,]+$")
+_MIN_GRID_NUMBERS = 6
+
+
+def _is_numeric_grid_row(tokens: list[str]) -> bool:
+    return len(tokens) >= _MIN_GRID_NUMBERS and all(_NUMERIC_TOKEN.match(t) for t in tokens)
+
+
 def looks_like_headerless_table_row(quote: str) -> bool:
     """Whether the quote contains a line that is a category-table row missing its heading.
 
@@ -71,6 +96,11 @@ def looks_like_headerless_table_row(quote: str) -> bool:
         tokens = _INLINE_CATEGORY.sub("", line).split()
         if not tokens:
             continue
+
+        # Checked before the category-cell scan, because a fee row has no text label for
+        # that scan to find and would otherwise fall through to `continue`.
+        if _is_numeric_grid_row(tokens):
+            return True
 
         run = 0
         for token in reversed(tokens):

@@ -31,6 +31,7 @@ from typing import Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
 
+from app.core.vocabulary import Sector
 from app.schemas.answer import AnswerPayload, Citation, NoAnswerReason, SourceGroup
 from app.services.grouping import group_hits
 from app.services.retrieval import SearchHit
@@ -78,8 +79,19 @@ class ExtractionResult(BaseModel):
 class Extractor(Protocol):
     """Chooses passages and spans. Never writes prose."""
 
-    def extract(self, question: str, passages: list[str]) -> ExtractionResult | None:
-        """Return the selections, or None if the model declined to answer at all."""
+    def extract(
+        self, question: str, passages: list[str], sector: Sector = Sector.MEDICAL
+    ) -> ExtractionResult | None:
+        """Return the selections, or None if the model declined to answer at all.
+
+        `sector` selects the system prompt — the passages are statutes or they are
+        clinical guidance, and the wording that tells the model which it is reading
+        differs (see extractor_claude). Defaulted so the dozens of three-line fake
+        extractors in the suite keep working unchanged, and because the default can only
+        be MEDICAL: a legal question reaching the clinical prompt reads statutes as
+        guidelines, which is wrong but visible in the output. There is no value of this
+        parameter that produces a confidently mislabelled answer.
+        """
         ...
 
 
