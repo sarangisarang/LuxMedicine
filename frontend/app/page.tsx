@@ -6,7 +6,14 @@ import { useState } from "react";
 import { AnswerView } from "@/components/AnswerView";
 import { LanguageProvider } from "@/components/LanguageContext";
 import type { Citation, QueryResponse } from "@/lib/api";
-import { QUERY_LANGUAGE, STRINGS, UI_LANGUAGES, type UiLang } from "@/lib/i18n";
+import {
+  QUERY_LANGUAGE,
+  SECTORS,
+  STRINGS,
+  UI_LANGUAGES,
+  type Sector,
+  type UiLang,
+} from "@/lib/i18n";
 
 // react-pdf touches browser-only APIs (DOMMatrix, canvas) and must not render on the
 // server. Loaded client-side only; this is the standard react-pdf + Next pattern.
@@ -20,6 +27,12 @@ export default function Home() {
   // One control, two jobs: it localises the interface and it is the `language` hint recorded
   // on the query (never a corpus filter — a guideline in another language is still a source).
   const [lang, setLang] = useState<UiLang>("en");
+  // Which corpus the question is asked of. Unlike `lang` this IS a filter — the backend
+  // searches one sector and never both, so a clinical question cannot return a statute.
+  // Defaults to medicine: that is what this system is, and the safe direction if the
+  // control is ignored (a legal question against the clinical corpus finds nothing, which
+  // is visible; the reverse would quote building-fee law to a clinician).
+  const [sector, setSector] = useState<Sector>("medical");
   const [answer, setAnswer] = useState<QueryResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -37,7 +50,7 @@ export default function Home() {
       const res = await fetch("/api/query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question, language: QUERY_LANGUAGE[lang] }),
+        body: JSON.stringify({ question, language: QUERY_LANGUAGE[lang], sector }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -83,6 +96,23 @@ export default function Home() {
               {t.demoNotice}
             </p>
 
+            {/* Only in the legal corpus, and always — not once, not dismissible. The output there
+                is verbatim statute text with a §-reference and a page number, which reads exactly
+                like an answer to "what may I bill". Quoting §35 HOAI correctly says nothing about
+                whether §35 applies to this contract, and nothing else on the page makes that gap
+                visible. The second notice names a known hole rather than letting silence about the
+                Honorartafeln read as the statute having nothing to say — see table_guard.py. */}
+            {sector === "legal" && (
+              <div className="mt-3 space-y-2">
+                <p className="rounded-md border border-sky-300 bg-sky-50 p-3 text-xs text-sky-900 dark:border-sky-900 dark:bg-sky-950 dark:text-sky-200">
+                  {t.legalNotice}
+                </p>
+                <p className="rounded-md border border-neutral-300 bg-neutral-50 p-3 text-xs text-neutral-700 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">
+                  {t.legalTableNotice}
+                </p>
+              </div>
+            )}
+
             <form onSubmit={ask} className="mt-8 space-y-3">
               <textarea
                 value={question}
@@ -92,6 +122,18 @@ export default function Home() {
                 className="w-full rounded-md border border-neutral-300 p-3 text-sm outline-none focus:border-neutral-500 dark:border-neutral-700 dark:bg-neutral-900"
               />
               <div className="flex items-center gap-3">
+                <select
+                  aria-label={t.sectorLabel}
+                  value={sector}
+                  onChange={(e) => setSector(e.target.value as Sector)}
+                  className="rounded-md border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-700 dark:bg-neutral-900"
+                >
+                  {SECTORS.map((s) => (
+                    <option key={s.code} value={s.code}>
+                      {s.label[lang]}
+                    </option>
+                  ))}
+                </select>
                 <select
                   value={lang}
                   onChange={(e) => setLang(e.target.value as UiLang)}

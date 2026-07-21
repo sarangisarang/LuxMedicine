@@ -728,7 +728,8 @@
           "ASCO",
           "IDSA",
           "KDIGO",
-          "GINA"
+          "GINA",
+          "Bundesrecht"
         ],
         "title": "IssuingOrg"
       },
@@ -775,6 +776,10 @@
               }
             ],
             "title": "Language"
+          },
+          "sector": {
+            "$ref": "#/components/schemas/Sector",
+            "default": "medical"
           },
           "include_archived": {
             "type": "boolean",
@@ -877,6 +882,15 @@
           "user_id"
         ],
         "title": "RegisterResponse"
+      },
+      "Sector": {
+        "type": "string",
+        "enum": [
+          "medical",
+          "legal"
+        ],
+        "title": "Sector",
+        "description": "Which body of knowledge a document belongs to.\n\nThis is a retrieval boundary, not a label. A question about heart failure must never\nretrieve §35 HOAI, and a question about Honorarzonen must never retrieve a cardiology\nguideline — not because the prompt discourages it, but because the SQL never returns\nthe other sector's chunks. Mixing them is not merely irrelevant: an extractive system\nquotes whatever it is handed, so a stray statute in a clinical result set is a\nverbatim, correctly-cited, and completely wrong answer.\n\nA document's sector is *derived* from its issuing organisation (see\n`IssuingOrg.sector`) rather than passed in beside it. Two independent fields that must\nagree are two fields that will eventually disagree, and the disagreement would be\ninvisible — the document would simply stop being findable, or start answering the\nwrong questions."
       },
       "SourceGroup": {
         "properties": {

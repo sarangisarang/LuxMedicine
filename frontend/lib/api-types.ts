@@ -381,7 +381,7 @@ export interface components {
          * IssuingOrg
          * @enum {string}
          */
-        IssuingOrg: "ESC" | "AHA" | "ACC" | "WHO" | "NICE" | "NHLBI" | "CDC" | "ADA" | "EASD" | "ESMO" | "ASCO" | "IDSA" | "KDIGO" | "GINA";
+        IssuingOrg: "ESC" | "AHA" | "ACC" | "WHO" | "NICE" | "NHLBI" | "CDC" | "ADA" | "EASD" | "ESMO" | "ASCO" | "IDSA" | "KDIGO" | "GINA" | "Bundesrecht";
         /**
          * LegalBasis
          * @description Why an erasure was performed. An enum, and that is the security control.
@@ -418,6 +418,8 @@ export interface components {
             question: string;
             /** Language */
             language?: string | null;
+            /** @default medical */
+            sector: components["schemas"]["Sector"];
             /**
              * Include Archived
              * @default false
@@ -460,6 +462,25 @@ export interface components {
             /** User Id */
             user_id: string;
         };
+        /**
+         * Sector
+         * @description Which body of knowledge a document belongs to.
+         *
+         *     This is a retrieval boundary, not a label. A question about heart failure must never
+         *     retrieve §35 HOAI, and a question about Honorarzonen must never retrieve a cardiology
+         *     guideline — not because the prompt discourages it, but because the SQL never returns
+         *     the other sector's chunks. Mixing them is not merely irrelevant: an extractive system
+         *     quotes whatever it is handed, so a stray statute in a clinical result set is a
+         *     verbatim, correctly-cited, and completely wrong answer.
+         *
+         *     A document's sector is *derived* from its issuing organisation (see
+         *     `IssuingOrg.sector`) rather than passed in beside it. Two independent fields that must
+         *     agree are two fields that will eventually disagree, and the disagreement would be
+         *     invisible — the document would simply stop being findable, or start answering the
+         *     wrong questions.
+         * @enum {string}
+         */
+        Sector: "medical" | "legal";
         /**
          * SourceGroup
          * @description What one issuing organisation's guideline says, in its own words.
