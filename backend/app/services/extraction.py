@@ -310,6 +310,17 @@ def _modal_size(sizes: list[float]) -> float:
     return Counter(sizes).most_common(1)[0][0]
 
 
+def _modal_of_counts(counts: Counter[float]) -> float:
+    """The modal size from a tally rather than from every value.
+
+    Same answer as `_modal_size`, constant memory. The document-wide baseline used to be
+    computed by keeping one float per character in the whole PDF — 489 pages of dense
+    statute is millions of them, and a Python float in a list costs ~32 bytes. A tally is
+    bounded by the number of *distinct* sizes a document uses, which is a handful.
+    """
+    return counts.most_common(1)[0][0]
+
+
 def extract_pdf(path: Path) -> ExtractedDocument:
     """Extract text line by line, recording each line's and page's offset as it goes.
 
@@ -321,7 +332,10 @@ def extract_pdf(path: Path) -> ExtractedDocument:
     empty_pages: list[int] = []
     glyph_damage: list[GlyphDamage] = []
     rotated_pages: list[int] = []
-    all_char_sizes: list[float] = []
+    # A tally, not every value: see _modal_of_counts. One float per character across the
+    # whole document is millions of entries on a long statute and buys nothing a count
+    # does not.
+    char_size_counts: Counter[float] = Counter()
     cursor = 0
 
     with pdfplumber.open(path) as pdf:
@@ -336,6 +350,7 @@ def extract_pdf(path: Path) -> ExtractedDocument:
                 # damaged_pages so the clinician is told a page could not be read.
                 rotated_pages.append(index)
                 pages.append(PageText(number=index, text="", char_start=cursor, char_end=cursor))
+                page.flush_cache()  # _is_rotated already read every char; free them
                 continue
 
             raw_lines = _lines_in_reading_order(page)
@@ -347,12 +362,13 @@ def extract_pdf(path: Path) -> ExtractedDocument:
                 # citation by one.
                 empty_pages.append(index)
                 pages.append(PageText(number=index, text="", char_start=cursor, char_end=cursor))
+                page.flush_cache()  # every branch out of this loop must free the page
                 continue
 
             page_start = cursor
             for raw, text in zip(raw_lines, page_line_texts, strict=True):
                 sizes = [round(char["size"], 1) for char in raw["chars"]]
-                all_char_sizes.extend(sizes)
+                char_size_counts.update(sizes)
 
                 unresolved = UNRESOLVED_GLYPH.findall(text)
                 if unresolved:
@@ -404,6 +420,21 @@ def extract_pdf(path: Path) -> ExtractedDocument:
             page_texts.append(page_text)
             cursor += len(PAGE_SEPARATOR)
 
+            # Release this page's parsed objects now that everything needed from it has been
+            # read into `lines` and `pages`.
+            #
+            # This is where the memory actually was. pdfplumber caches a page's parsed
+            # representation on first access and `pdf.pages` holds every Page object, so
+            # nothing is freed until the whole file closes — and the cache is per *character*
+            # dicts carrying font, size, matrix and position, on the order of a kilobyte each.
+            # A 489-page statute is millions of characters, which is gigabytes of live objects
+            # while the loop is still only on page 50.
+            #
+            # Measured, and it is the dominant term by a wide margin: streaming the *vectors*
+            # first (indexing.EMBED_BATCH) left peak RSS at 3.2 GB and the kernel still killed
+            # the ingest at 3 525 560 kB. Vectors were never what filled this box.
+            page.flush_cache()
+
     if not page_texts:
         raise NoTextLayerError(path, page_count)
 
@@ -414,5 +445,5 @@ def extract_pdf(path: Path) -> ExtractedDocument:
         empty_pages=empty_pages,
         glyph_damage=glyph_damage,
         rotated_pages=rotated_pages,
-        body_font_size=_modal_size(all_char_sizes),
+        body_font_size=_modal_of_counts(char_size_counts),
     )
