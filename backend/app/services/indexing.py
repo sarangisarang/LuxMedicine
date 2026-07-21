@@ -30,10 +30,27 @@ from app.services.embedding import Embedder
 from app.services.references import looks_like_reference
 from app.services.extraction import UNRESOLVED_GLYPH, extract_pdf
 
-# Rows per executemany. Vectors are 1024 floats each, so a whole guideline in one
-# statement makes for a very large packet; batching keeps memory and the wire sane
-# without giving up the single transaction.
-INSERT_BATCH = 200
+# Chunks embedded, built into rows, and inserted per pass — the three steps stay together
+# on purpose, because splitting them is what ran this box out of memory.
+#
+# It used to embed the whole document in one call, hold every vector, build every row, and
+# only then insert in slices. The slicing bounded the *packet* and not the memory: the full
+# vector list already existed. That is expensive in a way the numbers hide — `tolist()`
+# returns 1024 Python floats per vector, and a Python float is a 24-byte object plus an
+# 8-byte pointer in the list, so one vector is ~32 KB in RAM where float32 would be 4 KB.
+# Add the prefixed copy of every text the embedder makes, plus the row dicts holding the
+# text a second time, and a long document needs gigabytes with nothing written yet.
+#
+# Measured, not theorised: the kernel killed an ingest at anon-rss 3 486 504 kB on a 3.7 GB
+# box (OOM, 2026-07-21 12:08:50), leaving the version pending with no error in any log —
+# an OOM kill is silent by nature, so the failure looked like the ingest simply not working.
+#
+# Streaming makes peak memory a function of this constant instead of document length: about
+# 200 * 32 KB ~ 6 MB of vectors alive at a time, whatever the size of the PDF.
+#
+# The single-transaction guarantee is untouched. These inserts are still one transaction and
+# activation is still the last statement — a version is never half-indexed and reachable.
+EMBED_BATCH = 200
 
 
 class VersionNotPendingError(Exception):
@@ -121,33 +138,43 @@ async def index_version(
 
     chunks = kept
 
-    # One call, batched internally by the embedder. Passing every chunk at once lets it
-    # pack full batches; feeding it chunk by chunk would waste most of each one.
-    vectors = embedder.embed_passages([chunk.text for chunk in chunks])
+    # Embed, build, insert — one slice at a time, so nothing proportional to the document
+    # is ever fully resident. See EMBED_BATCH on why this is not the same as batching the
+    # insert alone.
+    #
+    # Still batched inside the embedder (16 per model pass), so this does not cost throughput:
+    # a 200-chunk slice is 12 full passes and one partial, where feeding chunks one at a time
+    # would waste most of every batch.
+    written = 0
+    for start in range(0, len(chunks), EMBED_BATCH):
+        batch = chunks[start : start + EMBED_BATCH]
+        vectors = embedder.embed_passages([chunk.text for chunk in batch])
 
-    if len(vectors) != len(chunks):  # pragma: no cover — a broken embedder, not a bug here
-        raise RuntimeError(f"embedder returned {len(vectors)} vectors for {len(chunks)} chunks")
+        if len(vectors) != len(batch):  # pragma: no cover — a broken embedder, not a bug here
+            raise RuntimeError(f"embedder returned {len(vectors)} vectors for {len(batch)} chunks")
 
-    rows = [
-        {
-            "id": uuid.uuid4(),
-            "document_version_id": version_id,
-            "ordinal": chunk.ordinal,
-            "page_start": chunk.page_start,
-            "page_end": chunk.page_end,
-            "section": chunk.section,
-            "content": chunk.text,
-            "embedding": vector,
-            # A bibliography entry is embedded and stored like any other — a citation must
-            # still resolve to it — but flagged so retrieval never lets it source an answer
-            # (#50). Set here so every new document is clean; the backfill covers old ones.
-            "is_reference": looks_like_reference(chunk.text),
-        }
-        for chunk, vector in zip(chunks, vectors, strict=True)
-    ]
-
-    for start in range(0, len(rows), INSERT_BATCH):
-        await session.execute(insert(Chunk), rows[start : start + INSERT_BATCH])
+        await session.execute(
+            insert(Chunk),
+            [
+                {
+                    "id": uuid.uuid4(),
+                    "document_version_id": version_id,
+                    "ordinal": chunk.ordinal,
+                    "page_start": chunk.page_start,
+                    "page_end": chunk.page_end,
+                    "section": chunk.section,
+                    "content": chunk.text,
+                    "embedding": vector,
+                    # A bibliography entry is embedded and stored like any other — a citation
+                    # must still resolve to it — but flagged so retrieval never lets it source
+                    # an answer (#50). Set here so every new document is clean; the backfill
+                    # covers old ones.
+                    "is_reference": looks_like_reference(chunk.text),
+                }
+                for chunk, vector in zip(batch, vectors, strict=True)
+            ],
+        )
+        written += len(batch)
 
     # The damage, recorded on the version rather than returned and forgotten (#41, 0013).
     # The previous commit refused the corrupted chunks and told nobody, so the corpus just
@@ -162,7 +189,7 @@ async def index_version(
 
     return IndexResult(
         version_id=version_id,
-        chunks_written=len(rows),
+        chunks_written=written,
         pages=len(document.pages),
         empty_pages=document.empty_pages,
         rejected_chunks=len(rejected),

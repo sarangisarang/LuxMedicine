@@ -188,14 +188,28 @@ async def test_a_failure_partway_through_the_inserts_rolls_back_the_earlier_ones
     This one is the real case: rows are already inserted when a later batch fails. If
     the earlier batches survived, the version would hold a fraction of a guideline.
     Batch size is forced to 1 so the boundary is crossed with the small fixture.
+
+    The failure is injected on the second *call* rather than at index 1 of one call,
+    because indexing now embeds and inserts per batch instead of embedding everything
+    first (see indexing.EMBED_BATCH — the old shape held every vector in memory and was
+    OOM-killed on a long document). With EMBED_BATCH forced to 1 each call receives a
+    single text, so there is no index 1 to corrupt. Same scenario either way: batch one is
+    committed to the transaction, batch two fails.
     """
-    monkeypatch.setattr("app.services.indexing.INSERT_BATCH", 1)
+    monkeypatch.setattr("app.services.indexing.EMBED_BATCH", 1)
 
     class BadVectorEmbedder(FakeEmbedder):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 0
+
         def embed_passages(self, texts: list[str]) -> list[list[float]]:
             vectors = super().embed_passages(texts)
-            assert len(vectors) > 1, "fixture must produce several chunks for this to mean anything"
-            vectors[1] = [0.0] * (DIM - 1)  # wrong dimension: Postgres rejects it
+            self.calls += 1
+            if self.calls == 2:
+                # Wrong dimension: Postgres rejects it, and by now batch one is already
+                # inserted — which is the only reason this test says anything.
+                return [[0.0] * (DIM - 1) for _ in vectors]
             return vectors
 
     with pytest.raises(Exception):  # noqa: B017 — asyncpg wraps the dimension error
