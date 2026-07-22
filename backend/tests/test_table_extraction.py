@@ -142,6 +142,51 @@ class TestSelfDescribingLines:
         assert any("With aura — Cu-IUD: 1" in ln and "CHC: 4*" in ln for ln in lines)
         assert any("Without aura" in ln and "CHC: 2*" in ln for ln in lines)
 
+    def test_the_parent_condition_is_carried_into_an_enumerated_sub_row(self):
+        """The live prod bug: the migraine-with-aura row embedded one rank below the passage
+        window because its label was "ii. With aura" — the word "migraine" lives on the
+        "b. Migraine" line above, which the raw sub-row drops. Real CDC MEC p124 geometry:
+        a bare "b. Migraine" heading, then the two enumerated sub-rows with cells."""
+        words = (
+            self._row(89, ("Condition", 51), ("Cu-IUD", 176), ("LNG-IUD", 249),
+                      ("Implant", 321), ("DMPA", 394), ("POP", 467), ("CHC", 540))
+            + self._row(158, ("Headaches", 60))
+            + self._row(167, ("a.", 47), ("Nonmigraine", 80), ("(mild", 120), ("or", 145), ("severe)", 170),
+                        ("1", 176), ("1", 249), ("1", 321), ("1", 394), ("1", 467), ("1*", 540))
+            + self._row(175, ("b.", 47), ("Migraine", 80))
+            + self._row(184, ("i.", 46), ("Without", 61), ("aura", 81),
+                        ("1", 176), ("1", 249), ("1", 321), ("1", 394), ("1", 467), ("2*", 540))
+            + self._row(201, ("ii.", 47), ("With", 57), ("aura", 72),
+                        ("1", 176), ("1", 249), ("1", 321), ("1", 394), ("1", 467), ("4*", 540))
+        )
+        lines = self_describing_lines(words)
+
+        # The row that answers the question now carries "Migraine" and still names CHC: 4.
+        aura = [ln for ln in lines if "With aura" in ln]
+        assert aura, "no with-aura row emitted"
+        assert aura[0].startswith("Migraine — With aura —"), aura[0]
+        assert "CHC: 4*" in aura[0]
+
+        # And the without-aura sub-row inherits the same parent, not the wrong one.
+        without = [ln for ln in lines if "Without aura" in ln]
+        assert without and without[0].startswith("Migraine — Without aura")
+
+    def test_a_lowercase_continuation_line_never_becomes_the_parent(self):
+        """"i. Without aura (includes / menstrual migraine)" wraps across two visual rows; the
+        lowercase second line must not be captured as the parent of "ii. With aura"."""
+        words = (
+            self._row(89, ("Condition", 51), ("Cu-IUD", 176), ("LNG-IUD", 249),
+                      ("Implant", 321), ("DMPA", 394), ("POP", 467), ("CHC", 540))
+            + self._row(175, ("b.", 47), ("Migraine", 80))
+            + self._row(184, ("i.", 46), ("Without", 61), ("aura", 81), ("(includes", 120),
+                        ("1", 176), ("1", 249), ("1", 321), ("1", 394), ("1", 467), ("2*", 540))
+            + self._row(192, ("menstrual", 61), ("migraine)", 100))  # lowercase wrap, no cells
+            + self._row(201, ("ii.", 47), ("With", 57), ("aura", 72),
+                        ("1", 176), ("1", 249), ("1", 321), ("1", 394), ("1", 467), ("4*", 540))
+        )
+        aura = [ln for ln in self_describing_lines(words) if "With aura" in ln]
+        assert aura and aura[0].startswith("Migraine — With aura —"), aura
+
     def test_a_page_with_no_header_yields_nothing(self):
         # Data-shaped rows but no method header above them: nothing is mapped. The pass only
         # ADDS text where it is certain; a page with no clean table is left untouched.

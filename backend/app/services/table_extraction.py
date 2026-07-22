@@ -119,6 +119,29 @@ def describe_row(label: str, mapping: list[tuple[str, str]]) -> str:
 
 _ROW_TOLERANCE = 4.0  # words within this many points of top share a row
 
+# A label that opens with an enumerator — "i.", "ii.", "a)", "3." — is a sub-item of the
+# heading above it. In the MEC summary table the condition sits on its own line ("b. Migraine")
+# and its sub-rows ("i. Without aura", "ii. With aura") carry only the sub-label — the word a
+# clinician actually searches for, "migraine", is on the parent line and the raw sub-row drops
+# it. Measured consequence: the self-describing "ii. With aura — …, CHC: 4*" row embeds ~0.16
+# from "migraine with aura", one rank below the passage window, while the raw sub-row (which
+# still says "Migraine") gets quoted and then refused by the guard — so the #48 answer exists
+# in the corpus and never reaches anyone. Carrying the parent condition into the label puts the
+# searched word back and lifts the safe row into the window.
+_SUB_ENUMERATOR = re.compile(r"^(?:[ivxlcdm]+|[a-z]|\d{1,2})[.)](?:\s+|$)", re.IGNORECASE)
+
+
+def _strip_enumerator(label: str) -> str:
+    """Drop a leading "ii. " / "b. " so a carried parent reads as the condition, not its bullet."""
+    return _SUB_ENUMERATOR.sub("", label, count=1).strip()
+
+
+def _row_label(row: list[dict], columns: list[MethodColumn]) -> str:
+    """The text left of the first value column — a row's label, header, or nothing."""
+    first_col = columns[0].x
+    label_words = [w for w in row if _centre(w) < first_col - _ALIGN_TOLERANCE]
+    return " ".join(w["text"] for w in sorted(label_words, key=lambda w: w["x0"]))
+
 
 def _rows(words: list[dict]) -> list[list[dict]]:
     """Group a page's words into rows by their vertical position, top to bottom."""
@@ -143,21 +166,44 @@ def self_describing_lines(words: list[dict]) -> list[str]:
     rows = _rows(words)
     out: list[str] = []
     columns: list[MethodColumn] | None = None
+    # The condition heading whose sub-rows we are currently under — "Migraine" for the rows
+    # beneath "b. Migraine". None when not inside such a group. See _SUB_ENUMERATOR.
+    parent: str | None = None
     for row in rows:
         header = find_method_columns(row)
         if header is not None:
             columns = header
+            parent = None  # a new table; nothing above it is a parent
             continue
         if columns is None:
             continue
+
+        label = _row_label(row, columns)
         mapping = map_row(row, columns)
+
         if mapping is None:
+            # Not a data row. Two kinds matter, told apart by how the label begins:
+            #   "b. Migraine"        — an enumerated sub-heading: becomes the parent
+            #   "Multiple sclerosis" — a new top-level condition: clears any stale parent
+            #   "menstrual migraine)"— a lowercase wrap of the row above: left alone
+            # Only the first two touch `parent`, so a continuation line can never be mistaken
+            # for the condition, which is exactly the row that would mislabel "ii. With aura".
+            if label and _SUB_ENUMERATOR.match(label):
+                parent = _strip_enumerator(label)
+            elif label[:1].isupper():
+                parent = None
             continue
-        # The row label is the text left of the first value column — the Condition cell.
-        first_col = columns[0].x
-        label_words = [w for w in row if (w["x0"] + w["x1"]) / 2 < first_col - _ALIGN_TOLERANCE]
-        label = " ".join(w["text"] for w in sorted(label_words, key=lambda w: w["x0"]))
+
         if not re.search(r"[A-Za-z]", label):
             continue
-        out.append(describe_row(label, mapping))
+
+        full_label = label
+        if parent and _SUB_ENUMERATOR.match(label):
+            full_label = f"{parent} — {_strip_enumerator(label)}"
+        out.append(describe_row(full_label, mapping))
+
+        # A data row whose own label is top-level (no enumerator) ends the sub-group, so its
+        # parent must not leak onto the next condition's sub-rows.
+        if not _SUB_ENUMERATOR.match(label):
+            parent = None
     return out

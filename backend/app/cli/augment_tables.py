@@ -35,37 +35,59 @@ from app.core.config import get_settings
 from app.models.chunk import Chunk
 from app.models.document import Document, DocumentVersion
 from app.services import storage
-from app.services.embedding import E5Embedder
+from app.services.embedding import make_embedder
 from app.services.references import looks_like_reference
+from app.services.honorar_tables import self_describing_honorar_rows
 from app.services.table_extraction import self_describing_lines
 
 
 def _rows_for_version(pdf_path) -> list[tuple[int, str]]:
-    """(page_number, self_describing_line) for every mappable table row in the PDF."""
+    """(page_number, self_describing_line) for every mappable table row in the PDF.
+
+    Both families, the same two the ingest path (services/extraction.extract_pdf) emits, so an
+    already-indexed document gains exactly what a fresh ingest would: US MEC category rows and
+    HOAI Honorartafel fee rows. The fee pass is gated on the page naming a Honorarzone, because
+    extract_tables is not free and most pages have no table.
+    """
     out: list[tuple[int, str]] = []
     with pdfplumber.open(pdf_path) as pdf:
         for index, page in enumerate(pdf.pages, start=1):
             for line in self_describing_lines(page.extract_words()):
                 out.append((index, line))
+            if "Honorarzone" in (page.extract_text() or ""):
+                for line in self_describing_honorar_rows(page.extract_tables()):
+                    out.append((index, line))
+            page.flush_cache()
     return out
 
 
-async def _run(org: str, apply: bool) -> int:
+async def _run(org: str, apply: bool, title_contains: str | None) -> int:
     settings = get_settings()
     engine = create_async_engine(settings.database_url, poolclass=NullPool)
     maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    embedder: E5Embedder | None = None
+    # make_embedder(), not E5Embedder(): on the deployment the corpus is embedded with the
+    # int8 ONNX model, and augmenting with the fp32 sentence-transformers model would write
+    # rows whose vectors come from different weights than the queries — a silent retrieval
+    # penalty on exactly the rows this exists to make findable. Same bug the ingest CLI had.
+    embedder = None
     try:
         async with maker() as session:
-            versions = (
-                await session.execute(
-                    select(DocumentVersion.id, DocumentVersion.storage_uri, Document.title)
-                    .join(Document, DocumentVersion.document_id == Document.id)
-                    .where(Document.issuing_org == org)
-                )
-            ).all()
+            query = (
+                select(DocumentVersion.id, DocumentVersion.storage_uri, Document.title)
+                .join(Document, DocumentVersion.document_id == Document.id)
+                .where(Document.issuing_org == org)
+            )
+            # An org can hold several documents; --title-contains narrows to specific ones. It
+            # is how a fee-table augment is aimed at the official HOAI alone, leaving every other
+            # document under the same issuing_org untouched.
+            if title_contains:
+                query = query.where(Document.title.ilike(f"%{title_contains}%"))
+            versions = (await session.execute(query)).all()
             if not versions:
-                print(f"no versions with issuing_org={org!r}; nothing to do")
+                where = f"issuing_org={org!r}"
+                if title_contains:
+                    where += f" and title contains {title_contains!r}"
+                print(f"no versions with {where}; nothing to do")
                 return 1
 
             total_new = 0
@@ -86,7 +108,7 @@ async def _run(org: str, apply: bool) -> int:
                     continue
 
                 if embedder is None:
-                    embedder = E5Embedder()
+                    embedder = make_embedder()
                 base = (
                     await session.execute(
                         select(func.coalesce(func.max(Chunk.ordinal), 0)).where(
@@ -126,8 +148,14 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--org", required=True, help="issuing_org to augment (e.g. CDC)")
     p.add_argument("--apply", action="store_true", help="write the new chunks (default: report only)")
+    p.add_argument(
+        "--title-contains",
+        default=None,
+        help="only augment documents whose title contains this (e.g. 'HOAI — Honorarordnung' "
+        "to hit the official statute and not other documents under the same org)",
+    )
     args = p.parse_args(argv)
-    return asyncio.run(_run(args.org, args.apply))
+    return asyncio.run(_run(args.org, args.apply, args.title_contains))
 
 
 if __name__ == "__main__":

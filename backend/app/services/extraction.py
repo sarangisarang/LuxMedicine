@@ -44,6 +44,7 @@ from pathlib import Path
 import pdfplumber
 
 from app.services.columns import find_regions
+from app.services.honorar_tables import self_describing_honorar_rows
 from app.services.table_extraction import self_describing_lines
 
 # Pages are joined by a blank line. It belongs to no page: a chunk boundary landing in
@@ -388,14 +389,23 @@ def extract_pdf(path: Path) -> ExtractedDocument:
                 )
                 cursor += len(text) + len(LINE_SEPARATOR)
 
-            # #48: append a self-describing line for each cleanly-mappable category-table row
-            # ("ii. With aura — Cu-IUD: 1, ..., CHC: 4*"), so the table becomes answerable
-            # instead of a headerless row the guard must refuse. Appended at the page's end,
-            # inside its char span, so each resolves to this page; additive, never replacing
-            # what was extracted, so a page with no clean table adds nothing. font_size 0 keeps
-            # them body text (heading_of needs font_size > body), and they add no chars, so the
-            # body-font measurement is untouched.
-            for extra in self_describing_lines(page.extract_words()):
+            # #48: append a self-describing line for each cleanly-mappable category-table row,
+            # so the table becomes answerable instead of a headerless row the guard must refuse.
+            # Two families, one mechanism:
+            #   - US MEC category tables  → "Migraine — With aura — …, CHC: 4*"  (word geometry)
+            #   - HOAI Honorartafeln      → "Anrechenbare Kosten 500 000 Euro — Honorarzone I …"
+            # Appended at the page's end, inside its char span, so each resolves to this page;
+            # additive, never replacing what was extracted, so a page with no clean table adds
+            # nothing. font_size 0 keeps them body text (heading_of needs font_size > body), and
+            # they add no chars to the geometry, so the body-font measurement is untouched.
+            #
+            # The fee-table pass is gated on the page actually naming a Honorarzone: extract_tables
+            # is not free, and running it on every page of every document — most of which have no
+            # table at all — would tax the same box this file just fought to keep inside memory.
+            extra_lines = list(self_describing_lines(page.extract_words()))
+            if any("Honorarzone" in line for line in page_line_texts):
+                extra_lines.extend(self_describing_honorar_rows(page.extract_tables()))
+            for extra in extra_lines:
                 extra = _normalise(extra)
                 lines.append(
                     Line(
