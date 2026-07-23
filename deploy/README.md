@@ -7,6 +7,30 @@ frontend, the API, and Keycloak; everything else stays on the internal Docker ne
 - `nginx/templates/luxmedicine.conf.template` — the reverse proxy + TLS config.
 - `.env.prod.example` — copy to `.env.prod` (git-ignored) and fill in.
 
+## Co-hosted deploys: the live stack is `docker-compose.cohost.yml`, NOT `docker-compose.prod.yml`
+
+**Using the wrong file is a full outage, and it looks like three unrelated bugs.** Both files
+declare the same project (`luxmedicine-prod`) and the same service names, so
+`docker compose -f docker-compose.prod.yml up -d <service>` is accepted without complaint and
+silently *replaces* a co-tenant container with a standalone one. Three things vanish at once:
+
+- the `deploy_internal` attachment and the `lux-web` / `lux-keycloak` aliases ATOB's nginx
+  proxies to → `nginx -t` fails with "host not found in upstream", every page 502;
+- `GEMINI_API_KEY` (prod.yml passes only `GEMINI_MODEL`) → the api exits 0 on startup with
+  "No API key was provided" and restart-loops, which reads as a crash, not a config gap;
+- `ALLOW_NON_EU_INFERENCE`, the demo waiver this deployment runs under.
+
+Seen exactly that way (2026-07-23): a frontend rebuild issued against `prod.yml` took the site
+down for ~12 minutes and cost 39 api restarts before the cause was found. Always:
+
+    docker compose --env-file deploy/.env.prod -f docker-compose.cohost.yml up -d [service]
+
+`prod.yml` is the standalone reference deployment (own proxy, own certbot, publishes 80/443).
+It is not wrong — it is for a different server. ATOB stayed 401-healthy throughout; the
+co-tenancy rules held. Related: `prod.yml`'s keycloak also still carried `--optimized`, which
+makes the stock image ignore `KC_DB: postgres` and exit 2 — dropped in that commit, but the
+container it broke had been running for three days, so nothing surfaced it until a restart.
+
 ## Co-hosted deploys: reload nginx after rebuilding `web` or `keycloak`
 
 **This is an outage if it is skipped, and it looks like a code failure.** On the co-hosted
