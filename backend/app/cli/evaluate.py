@@ -167,6 +167,48 @@ async def _corpus_contains(session: AsyncSession, phrase: str) -> bool:
     ).scalar_one()
 
 
+async def check_ground_truth(session: AsyncSession, questions: list[Question]) -> list[str]:
+    """Warn where `expect_pages` may no longer describe the corpus.
+
+    **The ground truth is now coupled to ingestion, and nothing else guards it.** Chunks can be
+    superseded (`chunks.superseded_by`), which takes a row out of retrieval while leaving it in
+    the table — and a re-read row can land on a different page than the one it replaced. So an
+    `expect_pages` entry written against yesterday's corpus can go stale two ways, and they
+    look opposite:
+
+      false off_source   the answer moved to a page the expectation does not list, and a
+                         correct answer is scored as coming from the wrong table
+      false answered     the expectation still lists a page whose rows are all retired, so a
+                         citation there would be counted as on-source when nothing active
+                         remains to have produced it
+
+    This catches the mechanical half: a listed page with no active chunk left. It cannot judge
+    whether an active page still *answers* — only a reader can — so it warns rather than fails,
+    and a warning that goes unread is at least a warning that was printed next to the number it
+    affects.
+    """
+    warnings: list[str] = []
+    for question in questions:
+        for page in question.expect_pages:
+            row = (
+                await session.execute(
+                    sql_text(
+                        "SELECT count(*) FILTER (WHERE superseded_by IS NULL) AS active, "
+                        "       count(*) FILTER (WHERE superseded_by IS NOT NULL) AS retired "
+                        "FROM chunks WHERE page_start = :p"
+                    ),
+                    {"p": page},
+                )
+            ).one()
+            if row.active == 0:
+                detail = f"{row.retired} retired chunk(s) remain" if row.retired else "no chunks at all"
+                warnings.append(
+                    f"{question.id}: expect_pages lists p{page}, which now holds {detail} — "
+                    "the expectation predates the corpus and will mis-score this question"
+                )
+    return warnings
+
+
 async def _diagnose_rejections(session: AsyncSession, answered) -> list[dict]:
     """Why each rejected quote failed — never just how many.
 
@@ -354,6 +396,17 @@ async def main_async(args: argparse.Namespace) -> int:
     maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     interval = 60.0 / args.rpm
     outcomes: list[Outcome] = []
+    # Before spending a single call: does the ground truth still describe this corpus? The
+    # expectation and the index drift apart silently, and the drift shows up as a verdict about
+    # the SYSTEM. Printed here so it is read next to the numbers it would otherwise corrupt.
+    async with maker() as session:
+        stale = await check_ground_truth(session, questions)
+    if stale:
+        print("GROUND TRUTH WARNINGS — these questions will mis-score until re-grounded:")
+        for warning in stale:
+            print(f"  ! {warning}")
+        print()
+
     try:
         for i, q in enumerate(questions, 1):
             tick = time.monotonic()

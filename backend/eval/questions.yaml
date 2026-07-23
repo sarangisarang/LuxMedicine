@@ -25,6 +25,25 @@
 #   CDC US SPR 2024   — contraception   316 chunks,  80pp
 #   NICE NG106 2018   — heart failure    57 chunks,  39pp
 #
+# **`expect_pages` is now coupled to ingestion, and only a warning guards it.** Chunks can be
+# superseded (`chunks.superseded_by`) — retired from retrieval, kept in the table — and a row
+# re-read by a fixed extractor can land on a different page than the one it replaced. So a page
+# number written against yesterday's corpus goes stale in two opposite-looking ways:
+#
+#   false off_source  the answer moved to a page this list does not name, and a CORRECT answer
+#                     is scored as coming from the wrong table
+#   false answered    the list still names a page whose rows are all retired, so a citation
+#                     there counts as on-source when nothing active could have produced it
+#
+# Live instance, left uncorrected on purpose: `contraception-migraine-aura` cites p124 while
+# this file expects [69, 123] — and its own note names p124 as where the self-describing rows
+# were added. The expectation is stale, not the answer. It stays until the provider comparison
+# is finished, because an instrument that changes between two runs measures neither.
+#
+# `app/cli/evaluate.check_ground_truth` prints a warning for the mechanical half (a listed page
+# with no active chunk left) before any question runs. It cannot tell whether an active page
+# still ANSWERS — that needs a reader — so a page that merely stopped being right stays silent.
+#
 # **Growing the corpus can invalidate a `not_covered` label, and a stale label is worse than
 # no label** — it turns a correct answer into a scored failure, or hides a real one. When
 # documents are added, re-check every `not_covered` entry by looking for the ANSWER in the
