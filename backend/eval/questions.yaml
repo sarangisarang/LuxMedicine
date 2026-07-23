@@ -39,6 +39,23 @@
 # all `withdrawn_source`, not `not_covered`, because the difference between "we never had it"
 # and "we removed it" is a fact about us that a bucket must not hide.
 #
+# **NOT YET WRITTEN, and the first thing to add after the provider comparison: a cross-cutting
+# question.** The corpus is no longer "medical + legal" in general — it is two narrow verticals,
+# reproductive health and German construction fee law, with nothing between them. The sector
+# wall is more obviously right at that distance, and a wall that wrongly kills a question is
+# correspondingly harder to notice: nobody expects an overlap, so nobody looks for one.
+#
+# The shape to write is a question a reader might reasonably put to EITHER corpus — consent,
+# documentation duty, record-keeping — and to assert what should happen: answered from the
+# sector that holds it, declined in the other, and the decline distinguishable from "nothing
+# exists anywhere". Today a query in the wrong sector returns `sources_do_not_answer` with no
+# indication that another corpus was never searched, which is correct but unhelpful, and this
+# file cannot currently tell the two apart.
+#
+# Deliberately NOT added yet: the instrument is frozen for the Vertex comparison, and a
+# question added to one side of it would make the difference unattributable — the failure this
+# whole sequence is arranged to avoid.
+#
 # **BEFORE ADDING QUESTIONS: check `python -m app.cli.coverage` first.**
 #
 # Writing questions by reading a PDF measures the PDF, not the index — and those differ.
