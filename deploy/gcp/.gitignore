@@ -1,0 +1,4 @@
+# A service-account key in git history is a key that must be rotated. Keep only the README.
+*
+!.gitignore
+!README.md
