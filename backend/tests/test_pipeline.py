@@ -299,6 +299,29 @@ async def test_a_broken_extractor_still_leaves_a_trail(session, embedder, corpus
         "a failed query must not break the chain"
     )
 
+    # The caller must be able to tell "we broke" from "the corpus is silent". The payload
+    # cannot: both are SOURCES_DO_NOT_ANSWER, which is right for a clinician and wrong for
+    # anything measuring. Without this the eval scored a 429 as `correctly_declined` on every
+    # not_covered question — an exhausted key read as proof the system refuses well, in the
+    # very session where the key is most likely to run out.
+    assert answered.error is not None and "fell over" in answered.error
+
+
+async def test_a_working_extractor_reports_no_error(session, embedder, corpus):
+    """The other direction: a real refusal must not look like a breakage either, or every
+    honest 'the corpus does not cover this' would be discarded as an error."""
+    answered = await answer_query(
+        session,
+        question="bisoprolol dose?",
+        actor_id="dr-001",
+        clinic_id=CLINIC,
+        embedder=embedder,
+        extractor=ScriptedExtractor(quotes=None),  # declines, does not raise
+    )
+
+    assert answered.payload.no_answer_reason is NoAnswerReason.SOURCES_DO_NOT_ANSWER
+    assert answered.error is None
+
 
 async def test_a_refusal_leaves_a_clean_trail(session, embedder, corpus):
     """A safety refusal is not our malfunction — no error is recorded, but the query is."""

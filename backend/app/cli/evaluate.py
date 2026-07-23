@@ -225,6 +225,18 @@ async def run_one(session: AsyncSession, q: Question, embedder, extractor) -> Ou
             error=f"{type(exc).__name__}: {exc}",
         )
 
+    # An extraction that raised comes back as an ordinary empty answer — the pipeline records
+    # the failure and hands the clinician "no guidance here", which is right for them and wrong
+    # for a measurement. Without this, a 429 scores as `correctly_declined` on every
+    # `not_covered` question: an exhausted key read as evidence the system refuses well.
+    if answered.error:
+        return Outcome(
+            id=q.id, expect=q.expect, tags=q.tags, no_answer_reason=None, groups=0,
+            citations=0, orgs=[], pages=[], rejected=0, diagnoses=[],
+            elapsed_s=round(time.monotonic() - started, 2), expect_pages=q.expect_pages,
+            error=answered.error,
+        )
+
     payload = answered.payload
     groups = payload.groups or []
     return Outcome(
@@ -243,7 +255,7 @@ async def run_one(session: AsyncSession, q: Question, embedder, extractor) -> Ou
     )
 
 
-def report(outcomes: list[Outcome]) -> dict:
+def report(outcomes: list[Outcome], *, model: str = "unknown", endpoint: str = "unknown") -> dict:
     """Four numbers, kept apart. See the module docstring for why one would be a lie."""
     buckets: dict[str, list[str]] = {}
     for o in outcomes:
@@ -267,7 +279,17 @@ def report(outcomes: list[Outcome]) -> dict:
 
     return {
         "at": datetime.now(timezone.utc).isoformat(),
-        "model": get_settings().llm_cache_dir and "cached-or-live" or "live",
+        # The model that produced these numbers, inside the data rather than only in the
+        # filename — a run whose file is renamed or moved must still say what it measured.
+        # This used to hold "cached-or-live", which is the cache's state and not the model's
+        # identity, so a before/after comparison across providers had nothing to key on.
+        "model": model,
+        "cache": "on" if get_settings().llm_cache_dir else "off",
+        # Where inference actually resolved, not the region that was configured. Recorded
+        # beside the results because "which endpoint produced this run" is exactly the
+        # question a provider comparison asks, and it stops being answerable the moment the
+        # environment changes. See app/cli/check_inference.
+        "endpoint": endpoint,
         "counts": {k: len(v) for k, v in sorted(buckets.items())},
         "by_id": buckets,
         "answerable": {
@@ -361,7 +383,10 @@ async def main_async(args: argparse.Namespace) -> int:
     finally:
         await engine.dispose()
 
-    summary = report(outcomes)
+    # Read back rather than assumed: the endpoint the SDK resolved is what actually served
+    # this run, and a configured region is a different claim (see app/cli/check_inference).
+    endpoint = getattr(extractor, "endpoint", "") or "unknown"
+    summary = report(outcomes, model=model, endpoint=endpoint)
     args.out.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     path = args.out / f"{stamp}-{model}.json"

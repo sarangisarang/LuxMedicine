@@ -63,6 +63,17 @@ class AnsweredQuery:
     rejected: list[RejectedCitation]
     invalid_sources: int
 
+    # The extraction failure, if the model call raised. NOT None means the empty answer above
+    # is *us*, not the corpus.
+    #
+    # It was recorded in the audit and nowhere else, so a caller could not tell a refusal from
+    # a breakage. That is fine for a clinician — both mean "no answer here" — and wrong for
+    # anything measuring: a quota-exhausted eval run scored its `not_covered` questions as
+    # `correctly_declined`, because 429 arrived as an ordinary empty payload. An exhausted key
+    # counted as evidence the system refuses correctly, in exactly the session where the key is
+    # most likely to run out.
+    error: str | None = None
+
 
 async def answer_query(
     session: AsyncSession,
@@ -171,6 +182,7 @@ async def answer_query(
         hits=hits,
         rejected=validated.rejected,
         invalid_sources=answer.invalid_sources,
+        error=error,
     )
 
 
