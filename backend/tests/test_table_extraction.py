@@ -187,6 +187,48 @@ class TestSelfDescribingLines:
         aura = [ln for ln in self_describing_lines(words) if "With aura" in ln]
         assert aura and aura[0].startswith("Migraine — With aura —"), aura
 
+    def test_a_sibling_row_whose_cells_were_refused_never_becomes_the_parent(self):
+        """The regression that put 13 mislabelled conditions into the corpus.
+
+        "a. Uncomplicated" carries seven cells against six columns, so map_row correctly
+        refuses it — and the first version of the parent rule read that refusal as "this is a
+        heading", making the next sibling read "Uncomplicated — Complicated (pulmonary …".
+        Measured on the real MEC that also produced "Compensated (normal liver — Decompensated
+        (impaired" and "<6 months — ≥6 months": siblings presented as parent and child, with
+        correct categories under a wrong condition name.
+        """
+        words = (
+            self._row(89, ("Condition", 51), ("Cu-IUD", 176), ("LNG-IUD", 249),
+                      ("Implant", 321), ("DMPA", 394), ("POP", 467), ("CHC", 540))
+            # seven cells, six columns -> map_row refuses; this row is a SIBLING, not a heading
+            + self._row(150, ("a.", 47), ("Uncomplicated", 90),
+                        ("1", 176), ("1", 249), ("1", 321), ("1", 394), ("1", 467), ("1", 500), ("2*", 540))
+            + self._row(167, ("b.", 47), ("Complicated", 90),
+                        ("1", 176), ("1", 249), ("1", 321), ("1", 394), ("1", 467), ("4*", 540))
+        )
+        lines = self_describing_lines(words)
+        complicated = [ln for ln in lines if "Complicated" in ln]
+
+        assert complicated, "the mappable sibling was not emitted at all"
+        assert not complicated[0].startswith("Uncomplicated —"), (
+            f"a refused sibling became the parent: {complicated[0]!r}"
+        )
+
+    def test_a_refused_sibling_does_not_steal_the_real_parent(self):
+        """The other direction. A sibling whose mapping fails must not *clear* the heading
+        either — the row after it is still that condition's sub-row."""
+        words = (
+            self._row(89, ("Condition", 51), ("Cu-IUD", 176), ("LNG-IUD", 249),
+                      ("Implant", 321), ("DMPA", 394), ("POP", 467), ("CHC", 540))
+            + self._row(175, ("b.", 47), ("Migraine", 80))          # real heading, no cells
+            + self._row(184, ("i.", 46), ("Without", 61), ("aura", 81),
+                        ("1", 176), ("1", 249), ("1", 500))          # refused: 3 cells, 6 columns
+            + self._row(201, ("ii.", 47), ("With", 57), ("aura", 72),
+                        ("1", 176), ("1", 249), ("1", 321), ("1", 394), ("1", 467), ("4*", 540))
+        )
+        aura = [ln for ln in self_describing_lines(words) if "With aura" in ln]
+        assert aura and aura[0].startswith("Migraine — With aura —"), aura
+
     def test_a_page_with_no_header_yields_nothing(self):
         # Data-shaped rows but no method header above them: nothing is mapped. The pass only
         # ADDS text where it is certain; a page with no clean table is left untouched.
@@ -215,6 +257,29 @@ class TestEndToEndOnRealMEC:
     isolated and holds no corpus — so it needs the licence-clean MEC file, not the model, and
     skips cleanly wherever that file is absent (CI, a fresh checkout).
     """
+
+    @staticmethod
+    def _mec_path():
+        """The MEC PDF's path, found by probing first pages rather than extracting each file.
+
+        The storage root also holds several 1000-page textbooks; `_mec_document` below runs a
+        full extract_pdf per candidate, which is fine once but far too slow for a scan that
+        opens the document itself. A two-page probe identifies MEC in milliseconds.
+        """
+        import pdfplumber
+
+        from app.core.config import get_settings
+
+        root = get_settings().storage_root
+        for path in sorted(root.rglob("*.pdf")) if root.is_dir() else []:
+            try:
+                with pdfplumber.open(path) as pdf:
+                    head = " ".join((p.extract_text() or "") for p in pdf.pages[:2])
+            except Exception:  # noqa: BLE001 - a scanned or broken PDF is simply not MEC
+                continue
+            if "Medical Eligibility Criteria" in head:
+                return path
+        pytest.skip("licence-clean CDC MEC is not in the storage root")
 
     @staticmethod
     def _mec_document():
@@ -246,6 +311,79 @@ class TestEndToEndOnRealMEC:
         # It carries every method with its own category — the header #48 used to strip; CHC: 4
         # is the combined-hormonal stroke contraindication the raw row hid.
         assert "CHC: 4" in aura[0].text
+
+    def test_no_emitted_row_takes_its_parent_from_a_row_that_has_categories(self):
+        """The structural invariant, over the whole real document rather than a fixture.
+
+        The unit tests above pin the shape on captured geometry; this asserts the property that
+        actually failed in production — across every table on every page, no emitted line may
+        have inherited its condition from a row carrying category cells. That is the difference
+        between a heading and a sibling, and conflating them is what shipped "Compensated
+        (normal liver — Decompensated (impaired" to a clinical corpus.
+
+        Written as an invariant rather than a list of known-bad rows because the 13 were found
+        by reading the corpus, not by any test — a count would only re-check the ones already
+        known, which is precisely how this class stayed invisible.
+
+        **This drives the shipped function.** The first version of this test re-implemented the
+        corrected rule inline and then checked its own re-implementation — a tautology that
+        passed even with the guard deleted from the real code, which a mutation run caught. The
+        two sides here are independent: the lines come from `self_describing_lines` itself,
+        while the set of sibling labels is derived from a property (this row carries category
+        cells and map_row refused it) that says nothing about how parents are chosen.
+        """
+        import pdfplumber
+
+        from app.services.table_extraction import (
+            _CATEGORY_CELL,
+            _row_label,
+            _rows,
+            _strip_enumerator,
+            find_method_columns,
+            map_row,
+        )
+
+        # Compared per page, because self_describing_lines resolves parents per page and a
+        # label is only evidence about its own. Collecting siblings document-wide flagged 13
+        # correct rows — "Confirmed gestational — Persistently elevated β-hCG" is a real
+        # parent and child on p56, whose parent text merely also appears as a refused data row
+        # elsewhere. Measured: 13 offenders scoped globally, 0 scoped to the page.
+        offenders: list[str] = []
+
+        with pdfplumber.open(self._mec_path()) as pdf:
+            for page in pdf.pages:
+                words = page.extract_words()
+                emitted = self_describing_lines(words)  # the shipped behaviour
+
+                # Independently: which labels on THIS page belong to data rows, not headings?
+                sibling_labels: set[str] = set()
+                rows = _rows(words)
+                columns = None
+                for row in rows:
+                    header = find_method_columns(row)
+                    if header is not None:
+                        columns = header
+                        continue
+                    if columns is None:
+                        continue
+                    if map_row(row, columns) is None and any(
+                        _CATEGORY_CELL.match(w["text"]) for w in row
+                    ):
+                        label = _strip_enumerator(_row_label(row, columns))
+                        if label:
+                            sibling_labels.add(label)
+
+                offenders.extend(
+                    line
+                    for line in emitted
+                    if len(line.split(" — ")) >= 3 and line.split(" — ")[0] in sibling_labels
+                )
+                page.flush_cache()
+
+        assert offenders == [], (
+            f"{len(offenders)} row(s) inherited a condition from a row that carries category "
+            f"cells — a sibling presented as a parent. First: {offenders[:3]}"
+        )
 
     def test_appending_the_rows_kept_the_ledger_exact(self):
         # Page attribution is a bisect over char offsets; a self-describing line whose offsets

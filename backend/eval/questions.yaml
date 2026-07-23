@@ -164,6 +164,52 @@ questions:
       dropped the asterisk. This failing while the English one "succeeded" is the system being
       SAFER in German. Not a translation bug; do not chase it as one.
 
+  # The mislabelled-parent class, which no question in this file could see.
+  #
+  # Carrying a sub-row's parent condition into its label (so "migraine" reaches the row that
+  # only says "ii. With aura") shipped with a flaw: a *sibling* data row whose own cells the
+  # mapper refused was read as a heading, so the next sibling inherited it. On the real MEC
+  # that produced 13 rows including "Compensated (normal liver — Decompensated (impaired —
+  # …, CHC: 4" — the categories for DEcompensated cirrhosis presented under COMpensated, its
+  # opposite. Verbatim, correctly cited to CDC, and clinically inverted: #48 exactly.
+  #
+  # It survived a full eval run because every table question here happened to be about
+  # migraine. These two make the class visible: a condition whose neighbour is its opposite,
+  # where reading the wrong sibling's row is a real clinical error rather than a wording slip.
+  - id: contraception-cirrhosis-decompensated
+    text: Can a woman with severe decompensated cirrhosis use combined hormonal contraception?
+    language: English
+    expect: answerable
+    source: CDC US MEC 2024
+    expect_pages: [22, 126]
+    tags: [table-48, mislabelled-parent]
+    note: >
+      The answer is category 4 — contraindicated — and it lives in a table row whose immediate
+      neighbour is MILD (compensated) cirrhosis, where CHC is category 1. So an off-by-one-row
+      answer here is not "slightly wrong wording", it is the opposite recommendation with a
+      correct citation. Watch which row is quoted, not only whether one was.
+
+      Known limitation, honestly recorded rather than hidden by the phrasing: the emitted row
+      reads "b. Decompensated (impaired — … CHC: 4". Two things are missing and both are
+      separate from the parent fix. The parent "Cirrhosis" is not carried, because the rule
+      only adopts an enumerated heading and "Cirrhosis" is a plain one; and the label is cut at
+      "(impaired" because _row_label reads a single geometric row, so a label that wraps loses
+      its tail (27 rows corpus-wide carry an unbalanced parenthesis from this).
+
+  - id: contraception-valvular-complicated
+    text: Is combined hormonal contraception safe in complicated valvular heart disease?
+    language: English
+    expect: answerable
+    source: CDC US MEC 2024
+    tags: [table-48, mislabelled-parent]
+    note: >
+      The second instance of the same shape — "Uncomplicated — Complicated (pulmonary …" was
+      one of the 13. Complicated valvular disease (pulmonary hypertension, atrial fibrillation,
+      subacute bacterial endocarditis) is category 4 for CHC while uncomplicated is category 2,
+      so the two sibling rows again carry opposite advice. No expect_pages: this entry exists
+      to watch the pairing, and pinning pages before measuring which one legitimately answers
+      would be inventing the expectation rather than recording it.
+
   - id: contraception-postpartum
     text: When can a woman start a combined hormonal contraceptive after giving birth?
     language: English

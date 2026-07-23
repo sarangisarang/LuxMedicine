@@ -182,16 +182,30 @@ def self_describing_lines(words: list[dict]) -> list[str]:
         mapping = map_row(row, columns)
 
         if mapping is None:
-            # Not a data row. Two kinds matter, told apart by how the label begins:
-            #   "b. Migraine"        — an enumerated sub-heading: becomes the parent
-            #   "Multiple sclerosis" — a new top-level condition: clears any stale parent
-            #   "menstrual migraine)"— a lowercase wrap of the row above: left alone
-            # Only the first two touch `parent`, so a continuation line can never be mistaken
-            # for the condition, which is exactly the row that would mislabel "ii. With aura".
-            if label and _SUB_ENUMERATOR.match(label):
+            # `mapping is None` covers two unrelated rows, and conflating them is what put 13
+            # mislabelled conditions into the corpus:
+            #
+            #   "b. Migraine"              a real heading — no category cells at all
+            #   "a. Uncomplicated  1 1 …"  a *sibling data row* whose cells map_row refused
+            #                              (7 cells against 6 columns, misaligned, …)
+            #
+            # Both reach here, and treating the second as a heading made the next sub-row read
+            # "Uncomplicated — Complicated (pulmonary …" — siblings presented as parent and
+            # child. Measured on the real MEC: "Compensated (normal liver — Decompensated
+            # (impaired", "<6 months — ≥6 months". The categories stay right and the condition
+            # name goes wrong, which is #48 exactly: verbatim, correctly cited, and read as
+            # something it is not.
+            #
+            # So a heading is a row carrying NO category cells. A row that has them is a
+            # sibling whose mapping was refused — never a parent.
+            has_cells = any(_CATEGORY_CELL.match(word["text"]) for word in row)
+            if label and _SUB_ENUMERATOR.match(label) and not has_cells:
                 parent = _strip_enumerator(label)
-            elif label[:1].isupper():
+            elif label[:1].isupper() and not has_cells:
                 parent = None
+            # A refused sibling neither sets nor clears: the parent above it still governs the
+            # next sibling, which is what keeps "Migraine — With aura" intact when the
+            # without-aura row beside it happens to fail its own mapping.
             continue
 
         if not re.search(r"[A-Za-z]", label):
