@@ -172,12 +172,15 @@ def guard_table_rows(payload: AnswerPayload) -> GuardResult:
         reason = NoAnswerReason.TABLE_NOT_CITABLE
 
     # Rebuilt, not model_copy'd, for the same reason validate_answer rebuilds: an empty answer
-    # must carry a reason, and model_copy would skip the invariant that enforces it.
+    # must carry a reason, and model_copy would skip the invariant that enforces it. And from
+    # the payload's own fields, overriding only what this step CHANGES — see validate_answer:
+    # listing what to preserve is what quietly drops the next field added upstream.
     guarded = AnswerPayload(
-        query_language=payload.query_language,
-        groups=surviving_groups,
-        conflicts=payload.conflicts if surviving_groups else [],
-        no_answer_reason=reason,
-        rejected_citations=payload.rejected_citations,
+        **{
+            **payload.model_dump(),
+            "groups": surviving_groups,
+            "conflicts": payload.conflicts if surviving_groups else [],
+            "no_answer_reason": reason,
+        }
     )
     return GuardResult(payload=guarded, dropped=dropped)

@@ -330,3 +330,49 @@ class TestIncompleteSourcesOnANoAnswer:
         answer = assemble("q", [], None, prompt="p", model="m")
         assert answer.payload.no_answer_reason is NoAnswerReason.NO_RELEVANT_SOURCES
         assert answer.payload.incomplete_sources == {}
+
+
+class TestPayloadFieldsSurviveTheWholePipeline:
+    """A field set in `assemble` must still be there after #19 and the table guard.
+
+    This is the bug that shipped for one deploy: `incomplete_sources` was set correctly in
+    assemble and then erased twice on the way out, because `validate_answer` and
+    `guard_table_rows` each rebuild the payload by listing the fields to PRESERVE. Five places
+    construct an AnswerPayload; adding a sixth field meant remembering four of them. It was
+    verified live as `{}` while the retrieved hit plainly carried `unreadable_pages=189`.
+
+    Exactly the shape retrieval._search_hit already records — two constructors, a field added
+    to one, a test that exercised only one path. So this asserts the invariant rather than the
+    instance: the payload that comes out the far end carries what went in.
+    """
+
+    def _payload(self, **overrides):
+        from app.schemas.answer import AnswerPayload, NoAnswerReason
+
+        base = {
+            "no_answer_reason": NoAnswerReason.SOURCES_DO_NOT_ANSWER,
+            "incomplete_sources": {"NHLBI EPR-3": 189},
+        }
+        return AnswerPayload(**{**base, **overrides})
+
+    def test_validation_preserves_it_on_a_decline(self):
+        from app.services.validation import validate_answer
+
+        result = validate_answer(self._payload(), {})
+        assert result.payload.incomplete_sources == {"NHLBI EPR-3": 189}
+
+    def test_the_table_guard_preserves_it_on_a_decline(self):
+        from app.services.table_guard import guard_table_rows
+
+        guarded = guard_table_rows(self._payload())
+        assert guarded.payload.incomplete_sources == {"NHLBI EPR-3": 189}
+
+    def test_it_survives_both_in_sequence_as_the_pipeline_runs_them(self):
+        """The pipeline runs validate_answer then guard_table_rows. Each was correct alone in
+        the first fix and the field still reached the clinician as {}."""
+        from app.services.table_guard import guard_table_rows
+        from app.services.validation import validate_answer
+
+        validated = validate_answer(self._payload(), {})
+        guarded = guard_table_rows(validated.payload)
+        assert guarded.payload.incomplete_sources == {"NHLBI EPR-3": 189}

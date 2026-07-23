@@ -209,6 +209,10 @@ def assemble(
             payload=AnswerPayload(
                 query_language=query_language,
                 no_answer_reason=NoAnswerReason.SOURCES_DO_NOT_ANSWER,
+                # Also a decline against a possibly-incomplete corpus — the model's source
+                # indices were all out of range, but the reader still gets silence and is
+                # still owed the qualifier.
+                incomplete_sources=_incomplete_sources(shown),
             ),
             prompt=prompt,
             model=model,

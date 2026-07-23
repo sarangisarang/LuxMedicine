@@ -114,12 +114,21 @@ def validate_answer(payload: AnswerPayload, chunks: dict[uuid.UUID, str]) -> Val
 
     # Rebuilt rather than model_copy'd: model_copy skips validation, so an empty answer
     # with no reason would slip past the invariant that exists to catch exactly this.
+    #
+    # But rebuilt from the payload's own fields, overriding only what this step CHANGES.
+    # Listing what to preserve is what silently drops the next field somebody adds: five
+    # places construct an AnswerPayload, and `incomplete_sources` was set in one of them and
+    # erased here and in table_guard before it ever reached a clinician — the same shape as
+    # the two SearchHit constructors that twice kept an old field set (see retrieval._search_hit).
+    # Enumerating the changes instead means a new field survives by default.
     cleaned = AnswerPayload(
-        query_language=payload.query_language,
-        groups=surviving_groups,
-        conflicts=payload.conflicts if surviving_groups else [],
-        no_answer_reason=reason,
-        rejected_citations=len(rejected),
+        **{
+            **payload.model_dump(),
+            "groups": surviving_groups,
+            "conflicts": payload.conflicts if surviving_groups else [],
+            "no_answer_reason": reason,
+            "rejected_citations": len(rejected),
+        }
     )
     return ValidationResult(payload=cleaned, rejected=rejected)
 
