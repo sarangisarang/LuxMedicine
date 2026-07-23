@@ -191,6 +191,25 @@ class AnswerPayload(BaseModel):
     # thing that must not be invisible.
     rejected_citations: int = 0
 
+    # Documents that WERE searched and are known to be incomplete: title -> how many of their
+    # pages extraction could not read (#41).
+    #
+    # **Only meaningful on a no-answer, which is exactly where it was missing.** When an answer
+    # is shown, `SourceGroup.unreadable_pages` already tells the clinician that the document
+    # they are reading has holes. When nothing is shown, the payload carried only a reason —
+    # and "the guideline does not cover this" and "the page that covers it could not be read"
+    # arrive as the same sentence. Clinically they are opposite: one closes a question, the
+    # other means look somewhere else.
+    #
+    # The corpus makes this concrete rather than theoretical. NHLBI EPR-3 is the only asthma
+    # document and 116 of its 440 pages hold no chunk at all, with a further 73 partly damaged
+    # — so a quarter of the source behind every asthma decline is absent, and until now nothing
+    # said so.
+    #
+    # It does not claim the answer was in a hole; nothing can know that. It says the searched
+    # corpus is incomplete, which is true, checkable, and was invisible.
+    incomplete_sources: dict[str, int] = Field(default_factory=dict)
+
     @model_validator(mode="after")
     def an_empty_answer_must_say_why(self) -> "AnswerPayload":
         """No groups and no reason is unrepresentable.

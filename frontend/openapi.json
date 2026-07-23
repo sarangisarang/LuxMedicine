@@ -443,6 +443,13 @@
             "type": "integer",
             "title": "Rejected Citations",
             "default": 0
+          },
+          "incomplete_sources": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Incomplete Sources"
           }
         },
         "type": "object",

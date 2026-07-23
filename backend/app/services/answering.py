@@ -117,6 +117,24 @@ def render_passages(hits: list[SearchHit], *, limit: int = MAX_PASSAGES) -> list
     return [hit.content for hit in hits[:limit]]
 
 
+def _incomplete_sources(hits: list[SearchHit]) -> dict[str, int]:
+    """Searched documents known to have pages extraction could not read, by title.
+
+    `unreadable_pages` is None where nobody measured and [] where it was measured clean —
+    different claims, and only a non-empty list is reported. A version appearing on several
+    hits contributes once, because the count belongs to the document, not to the hit.
+    """
+    out: dict[str, int] = {}
+    seen: set[uuid.UUID] = set()
+    for hit in hits:
+        if hit.document_version_id in seen:
+            continue
+        seen.add(hit.document_version_id)
+        if hit.unreadable_pages:
+            out[hit.document_title] = out.get(hit.document_title, 0) + len(hit.unreadable_pages)
+    return out
+
+
 def assemble(
     question: str,
     hits: list[SearchHit],
@@ -147,10 +165,16 @@ def assemble(
     if result is None or not result.quotes:
         # The model read the passages and none of them answer. That is a fact about the
         # corpus, not about us — distinct from #19 rejecting fabricated quotes.
+        #
+        # And it is a fact with a qualifier the clinician could not previously see: some of
+        # what was searched is missing. `unreadable_pages` travels on every hit precisely so
+        # that "the guideline does not say" and "the page where it says it could not be read"
+        # do not arrive as the same sentence — but only the answered path was using it.
         return Answer(
             payload=AnswerPayload(
                 query_language=query_language,
                 no_answer_reason=NoAnswerReason.SOURCES_DO_NOT_ANSWER,
+                incomplete_sources=_incomplete_sources(shown),
             ),
             prompt=prompt,
             model=model,

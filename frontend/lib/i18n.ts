@@ -67,6 +67,10 @@ type Strings = {
     // Shown only when the corpus did not answer (not on our own faults), because rephrasing is
     // what can help there and cannot help a verification failure.
     hint: string;
+    // Named on a DECLINE only. An answered result already says this per source. Without it,
+    // "the guideline does not cover this" and "the page that covers it could not be read"
+    // are the same sentence, and they are opposite instructions to a clinician.
+    incompleteSources: (sources: string[]) => string;
   };
   // A failed request, told apart by cause: an auth/token problem vs the server being down are
   // different actions for the user, and neither is "no answer".
@@ -150,6 +154,8 @@ export const STRINGS: Record<UiLang, Strings> = {
         "The answer is in a table, and this system cannot yet quote it with the column headings that give its category numbers meaning. Rather than show a number without its heading, it is withheld — open the source page to read the table directly.",
       fallback: "No answer.",
       hint: "Try a more specific question, or ask it the way these guidelines are written — for example, which contraceptive method suits a particular condition, rather than how to treat pain in general.",
+      incompleteSources: (sources) =>
+        `Note: part of what was searched could not be read. Pages could not be extracted from ${sources.join(", ")} — the number in brackets is how many. This does not mean the answer was on one of them, but the source behind this reply is incomplete, so a silence here is weaker evidence than it looks.`,
     },
     errors: {
       auth: "Your session could not be authenticated. Sign in again, or check that the login service is running.",
@@ -232,6 +238,8 @@ export const STRINGS: Record<UiLang, Strings> = {
         "Die Antwort steht in einer Tabelle, und dieses System kann sie noch nicht zusammen mit den Spaltenüberschriften zitieren, die den Kategoriezahlen ihre Bedeutung geben. Statt eine Zahl ohne ihre Überschrift anzuzeigen, wird sie zurückgehalten — öffnen Sie die Quellseite, um die Tabelle direkt zu lesen.",
       fallback: "Keine Antwort.",
       hint: "Stellen Sie die Frage spezifischer, oder so, wie diese Leitlinien geschrieben sind — zum Beispiel, welche Verhütungsmethode zu einer bestimmten Erkrankung passt, statt wie man Schmerzen allgemein behandelt.",
+      incompleteSources: (sources) =>
+        `Hinweis: Ein Teil des Durchsuchten konnte nicht gelesen werden. Aus ${sources.join(", ")} ließen sich Seiten nicht extrahieren — die Zahl in Klammern gibt an, wie viele. Das heißt nicht, dass die Antwort auf einer davon stand; die Quelle hinter dieser Auskunft ist jedoch unvollständig, sodass ein Schweigen hier weniger aussagt, als es scheint.`,
     },
     // TODO(review): clinician-facing German — have a native speaker check before deploy.
     errors: {
@@ -318,6 +326,8 @@ export const STRINGS: Record<UiLang, Strings> = {
         "პასუხი ცხრილშია, და სისტემას ჯერ არ შეუძლია ის ციტირდეს იმ სვეტის სათაურებთან ერთად, რომლებიც კატეგორიის რიცხვებს აზრს ანიჭებენ. იმის ნაცვლად, რომ რიცხვი სათაურის გარეშე აჩვენოს, ის დაფარულია — გახსენით წყაროს გვერდი და წაიკითხეთ ცხრილი პირდაპირ.",
       fallback: "პასუხი არ არის.",
       hint: "სცადე უფრო კონკრეტული კითხვა, ან ისე დასვი, როგორც ეს გაიდლაინებია დაწერილი — მაგალითად, რომელი კონტრაცეპტივი შეეფერება კონკრეტულ მდგომარეობას, და არა როგორ ვუმკურნალო ტკივილს ზოგადად.",
+      incompleteSources: (sources) =>
+        `შენიშვნა: მოძიებულის ნაწილი ვერ წაიკითხა. ${sources.join(", ")} — აქედან გვერდები ვერ ამოიღო (ფრჩხილებში მათი რაოდენობაა). ეს არ ნიშნავს, რომ პასუხი სწორედ იქ იყო — მაგრამ ამ პასუხის უკან მდგარი წყარო არასრულია, ანუ აქ სიჩუმე უფრო სუსტი მტკიცებულებაა, ვიდრე ჩანს.`,
     },
     errors: {
       auth: "სესია ვერ დამოწმდა. თავიდან შედი, ან შეამოწმე, მუშაობს თუ არა ავტორიზაციის სერვისი.",

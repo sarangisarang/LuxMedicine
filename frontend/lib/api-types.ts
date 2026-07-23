@@ -249,6 +249,10 @@ export interface components {
              * @default 0
              */
             rejected_citations: number;
+            /** Incomplete Sources */
+            incomplete_sources?: {
+                [key: string]: number;
+            };
         };
         /** Body_create_version_documents_versions_post */
         Body_create_version_documents_versions_post: {

@@ -17,6 +17,7 @@ works.
 """
 
 import pathlib
+import re
 import uuid as uuid_mod
 
 import pytest
@@ -500,3 +501,71 @@ async def test_both_retrieval_paths_carry_it(session):
             assert 8 in mine[0].unreadable_pages
     finally:
         await session.rollback()
+
+
+@pytest.mark.slow
+class TestControlCharacterGlyphs:
+    """#45's invisible form: a symbol that extracted as a CONTROL character.
+
+    The known detectors look for `(cid:N)`, a substituted letter, or the replacement char.
+    NHLBI page 9 prints "IN YOUTHS ≥12 YEARS OF AGE" and extracts as `IN YOUTHS \x01 12 YEARS`
+    — U+0001, which renders as nothing, matches none of those patterns, and reads as an
+    innocuous double space. A live check for glyph damage reported "0" on this document and the
+    zero was believed; the damage was found only because the eval printed a rejected quote and
+    it could be read character by character.
+
+    **This test carries a positive control, which is the point.** It first asserts the damage IS
+    found on the document known to carry it — because a detector whose zero has never been shown
+    to be capable of being non-zero is not evidence of anything. Only then does it pin the
+    scale, so growth on a future ingest fails here rather than surfacing as a clinician's
+    unexplained verification_failed.
+    """
+
+    # Every C0 control except tab/newline/CR, plus DEL. Extraction should never emit these.
+    CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+    @staticmethod
+    def _nhlbi():
+        """The NHLBI EPR-3 PDF, found by probing first pages. Skips where it is absent."""
+        import pdfplumber
+
+        from app.core.config import get_settings
+
+        root = get_settings().storage_root
+        for path in sorted(root.rglob("*.pdf")) if root.is_dir() else []:
+            try:
+                with pdfplumber.open(path) as pdf:
+                    head = " ".join((p.extract_text() or "") for p in pdf.pages[:2])
+            except Exception:  # noqa: BLE001 - a broken PDF is simply not the one
+                continue
+            if "Expert Panel Report 3" in head or "EPR-3" in head:
+                return path
+        pytest.skip("NHLBI EPR-3 is not in the storage root")
+
+    def test_the_detector_fires_on_the_document_known_to_carry_it(self):
+        """The positive control. If this finds nothing, every other zero here is worthless."""
+        from app.services.extraction import extract_pdf
+
+        doc = extract_pdf(self._nhlbi())
+        damaged = [line for line in doc.lines if self.CONTROL.search(line.text)]
+
+        assert damaged, (
+            "no control characters found in NHLBI — either the document changed or this "
+            "detector has gone blind, and in both cases its zeroes elsewhere mean nothing"
+        )
+        # And it is the ≥ form specifically: a control character sitting against a number.
+        assert any(re.search(r"[\x00-\x08]\s*\d", line.text) for line in damaged)
+
+    def test_the_damage_has_not_grown(self):
+        """A tripwire, not a target. 13 lines / 13 occurrences measured 2026-07-23, all U+0001
+        and all on age or size thresholds ("YOUTHS ≥12 YEARS", "≥10 micrometers"). An increase
+        means a new ingest introduced more, which must not be discovered from a clinician's
+        rejected quote."""
+        from app.services.extraction import extract_pdf
+
+        doc = extract_pdf(self._nhlbi())
+        occurrences = sum(len(self.CONTROL.findall(line.text)) for line in doc.lines)
+        kinds = {ch for line in doc.lines for ch in self.CONTROL.findall(line.text)}
+
+        assert occurrences <= 13, f"control-character damage grew to {occurrences} (was 13)"
+        assert kinds == {"\x01"}, f"a new control character appeared: {sorted(map(ord, kinds))}"

@@ -36,6 +36,25 @@ export function AnswerView({
         {canRephrase && (
           <p className="mt-2 text-xs text-neutral-500">{t.noAnswer.hint}</p>
         )}
+        {/* "The guideline does not say this" and "we could not read the page where it says
+            it" arrive as the same sentence otherwise — and clinically they are opposite: one
+            closes the question, the other means look elsewhere. The answered path has said
+            this per source since #41; the DECLINE path said nothing, which is the half that
+            mattered. NHLBI EPR-3 is the only asthma document and 116 of its 440 pages hold no
+            chunk at all, so every asthma decline was made against a quarter-missing source,
+            silently. */}
+        {Object.keys(answer.incomplete_sources ?? {}).length > 0 && (
+          <p
+            role="status"
+            className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-2.5 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200"
+          >
+            {t.noAnswer.incompleteSources(
+              Object.entries(answer.incomplete_sources ?? {}).map(
+                ([title, pages]) => `${title} (${pages})`,
+              ),
+            )}
+          </p>
+        )}
       </section>
     );
   }

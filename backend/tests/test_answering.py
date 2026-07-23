@@ -247,3 +247,86 @@ def test_the_prompt_says_what_happens_to_an_inexact_quote():
     """The model should know a near-miss is discarded rather than helpfully approximated
     — #19 is a fact about the system, not a secret."""
     assert "discarded" in SYSTEM_PROMPT
+
+
+class TestIncompleteSourcesOnANoAnswer:
+    """"The guideline does not say" and "we could not read that page" must not be one sentence.
+
+    When an answer IS shown, SourceGroup.unreadable_pages already tells the clinician the
+    document has holes. When nothing is shown, the payload carried only a reason — so a decline
+    from a fully-read corpus and a decline from a quarter-missing one were identical.
+
+    The corpus makes it concrete: NHLBI EPR-3 is the only asthma document and 116 of its 440
+    pages hold no chunk at all. Every asthma decline was made against that, silently.
+    """
+
+    def _hit(self, *, title: str, unreadable, version=None) -> SearchHit:
+        return SearchHit(
+            chunk_id=uuid.uuid4(),
+            document_version_id=version or uuid.uuid4(),
+            document_id=uuid.uuid4(),
+            document_title=title,
+            issuing_org="NHLBI",
+            version_label="2007",
+            section=None,
+            page_start=1,
+            page_end=1,
+            content="a passage that does not answer the question",
+            distance=0.2,
+            is_superseded=False,
+            unreadable_pages=unreadable,
+        )
+
+    def test_a_decline_names_the_incomplete_document(self):
+        answer = assemble(
+            "asthma severity in adults?",
+            [self._hit(title="NHLBI EPR-3", unreadable=[9, 10, 11])],
+            ExtractionResult(quotes=[]),
+            prompt="p",
+            model="m",
+        )
+        assert answer.payload.no_answer_reason is NoAnswerReason.SOURCES_DO_NOT_ANSWER
+        assert answer.payload.incomplete_sources == {"NHLBI EPR-3": 3}
+
+    def test_a_measured_clean_document_is_not_reported(self):
+        """[] means measured and clean; None means nobody measured. Neither is damage, and
+        reporting either would make the signal noise the first time it is read."""
+        for unreadable in ([], None):
+            answer = assemble(
+                "q",
+                [self._hit(title="CDC MEC", unreadable=unreadable)],
+                ExtractionResult(quotes=[]),
+                prompt="p",
+                model="m",
+            )
+            assert answer.payload.incomplete_sources == {}
+
+    def test_one_document_counted_once_however_many_passages_it_contributed(self):
+        version = uuid.uuid4()
+        hits = [
+            self._hit(title="NHLBI EPR-3", unreadable=[9, 10], version=version)
+            for _ in range(4)
+        ]
+        answer = assemble("q", hits, ExtractionResult(quotes=[]), prompt="p", model="m")
+        assert answer.payload.incomplete_sources == {"NHLBI EPR-3": 2}
+
+    def test_an_answered_query_does_not_carry_it(self):
+        """The answered path already says this per group; duplicating it there would put the
+        same warning in two places and let them disagree."""
+        hit = self._hit(title="NHLBI EPR-3", unreadable=[9])
+        answer = assemble(
+            "q",
+            [hit],
+            ExtractionResult(quotes=[SelectedQuote(source=1, quote="a passage that does not")]),
+            prompt="p",
+            model="m",
+        )
+        assert answer.payload.groups
+        assert answer.payload.incomplete_sources == {}
+
+    def test_no_hits_at_all_reports_nothing(self):
+        """NO_RELEVANT_SOURCES means retrieval found nothing, so there is no searched document
+        to describe — claiming incompleteness here would be inventing a source."""
+        answer = assemble("q", [], None, prompt="p", model="m")
+        assert answer.payload.no_answer_reason is NoAnswerReason.NO_RELEVANT_SOURCES
+        assert answer.payload.incomplete_sources == {}
