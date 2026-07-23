@@ -102,6 +102,20 @@ Clear `GOOGLE_CLOUD_PROJECT`, restore `GEMINI_API_KEY`, set `ALLOW_NON_EU_INFERE
 restart. The corpus, the audit chain and the users are untouched by any of this — inference
 is the last link, not the store.
 
+## What the endpoint check does NOT establish
+
+`check_inference` proves the technical route: which host the SDK resolved, and therefore where
+the computation physically happens. That is necessary and it is not the whole promise.
+
+"The data is not used for training" and "it stays in the EU as a matter of obligation" are
+**contractual**, not technical — Google's data-processing terms and the DPA for the project.
+Vertex's terms differ from the free developer API's on exactly this point, which is one of the
+reasons to switch, but a resolved hostname is not evidence of a signed agreement.
+
+If any of this is ever stated to a clinician, record the contractual side separately: which
+terms apply, accepted when, and by which account. The endpoint check answers "where does it
+run"; it cannot answer "what may they do with it".
+
 ## What this does and does not fix
 
 **Does:** data residency, the daily-quota ceiling that keeps the eval small, and the training
