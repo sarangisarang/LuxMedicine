@@ -49,6 +49,14 @@
 # theoretical but concentrated exactly where fabrication matters most. Fixed 2026-07-23; this run
 # is the first taken on the corrected predicate. Do NOT compare its inventions to an older run.
 #
+# **Comparing the Vertex run against this baseline: read the two metadata fields FIRST.** Each
+# run records `model` and `endpoint`. The switch is meant to change only `endpoint`
+# (generativelanguage.googleapis.com -> an EU Vertex host), holding `model` fixed. But Vertex
+# may serve a different build under the same name, and if `model` moved too, a per-question
+# delta measures the model change, not the residency change — two variables, one diff. So
+# confirm `endpoint` changed and `model` did NOT before reading a single per-question result;
+# if `model` also moved, the comparison is not clean and the delta is unattributable.
+#
 # **NOT YET WRITTEN, and the first thing to add after the provider comparison: a cross-cutting
 # question.** The corpus is no longer "medical + legal" in general — it is two narrow verticals,
 # reproductive health and German construction fee law, with nothing between them. The sector
