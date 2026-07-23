@@ -5,7 +5,8 @@ import { useState } from "react";
 
 import { AnswerView } from "@/components/AnswerView";
 import { LanguageProvider } from "@/components/LanguageContext";
-import type { Citation, QueryResponse } from "@/lib/api";
+import type { SourceTarget } from "@/components/PdfViewer";
+import type { QueryResponse } from "@/lib/api";
 import {
   QUERY_LANGUAGE,
   SECTORS,
@@ -36,7 +37,9 @@ export default function Home() {
   const [answer, setAnswer] = useState<QueryResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [source, setSource] = useState<Citation | null>(null);
+  // What the source panel is showing: a cited quote, or a page listed as unreadable. Both
+  // open the same viewer at the same document; only one of them has a quote to highlight.
+  const [source, setSource] = useState<SourceTarget | null>(null);
 
   const t = STRINGS[lang];
 
@@ -161,7 +164,15 @@ export default function Home() {
               </p>
             )}
 
-            {answer && <AnswerView answer={answer.answer} onOpenSource={setSource} />}
+            {answer && (
+              <AnswerView
+                answer={answer.answer}
+                onOpenSource={(c) => setSource({ kind: "citation", citation: c })}
+                onOpenPage={(documentVersionId, documentTitle, page) =>
+                  setSource({ kind: "page", documentVersionId, documentTitle, page })
+                }
+              />
+            )}
           </div>
         </main>
 
@@ -169,8 +180,12 @@ export default function Home() {
           <aside className="sticky top-0 h-screen w-[45%] max-w-2xl border-l border-neutral-200 dark:border-neutral-800">
             {/* key per citation: a new selection remounts the viewer at the new cited page. */}
             <PdfViewer
-              key={`${source.document_version_id}:${source.page_start}`}
-              citation={source}
+              key={
+                source.kind === "citation"
+                  ? `${source.citation.document_version_id}:${source.citation.page_start}`
+                  : `${source.documentVersionId}:${source.page}`
+              }
+              target={source}
               onClose={() => setSource(null)}
             />
           </aside>

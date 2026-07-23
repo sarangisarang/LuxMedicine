@@ -15,9 +15,14 @@ import { SourceGroupCard } from "./SourceGroupCard";
 export function AnswerView({
   answer,
   onOpenSource,
+  onOpenPage,
 }: {
   answer: AnswerPayload;
   onOpenSource?: (c: Citation) => void;
+  // Open a page that carries no citation — the unreadable ones (#41). Separate from
+  // `onOpenSource` because there is no Citation to pass: inventing one would make the viewer
+  // claim a quote came from a page this system could not read.
+  onOpenPage?: (documentVersionId: string, documentTitle: string, page: number) => void;
 }) {
   const t = useT();
 
@@ -71,7 +76,12 @@ export function AnswerView({
       )}
 
       {answer.groups.map((group, i) => (
-        <SourceGroupCard key={i} group={group} onOpenSource={onOpenSource} />
+        <SourceGroupCard
+          key={i}
+          group={group}
+          onOpenSource={onOpenSource}
+          onOpenPage={onOpenPage}
+        />
       ))}
 
       {/* All quotes gathered into one readable block — the same verbatim text, never a

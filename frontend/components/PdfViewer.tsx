@@ -16,22 +16,41 @@ import { useT } from "./LanguageContext";
 // origin, never a CDN, for the same no-third-party reason the rest of the stack self-hosts.
 pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
 
+// What the viewer was asked to show. Two cases, and they are NOT the same thing:
+//
+//   - `citation` — a quote the answer used. There is text to highlight and the header may
+//     honestly say "cited".
+//   - `page` — a page listed as unreadable (#41). Nothing was quoted from it; that is the
+//     reason to open it. Modelling this as a Citation with a blank quote was the shorter
+//     route and is the wrong one: the viewer would announce a page as cited when the whole
+//     point is that this system could not read it, and the highlighter would run against a
+//     quote that does not exist. The union makes the difference unrepresentable-away.
+export type SourceTarget =
+  | { kind: "citation"; citation: Citation }
+  | { kind: "page"; documentVersionId: string; documentTitle: string; page: number };
+
 // #35 — the source page a citation points at, so verification is one click, not a promise.
 // Opens at the cited page; prev/next let the clinician read the surrounding context, which
 // is the whole reason a page reference beats a paraphrase.
 export function PdfViewer({
-  citation,
+  target,
   onClose,
 }: {
-  citation: Citation;
+  target: SourceTarget;
   onClose: () => void;
 }) {
   const t = useT();
-  // page and error initialise from the citation; the parent gives this component a `key`
-  // per citation, so selecting a different one remounts it fresh at the new cited page
+  const documentVersionId =
+    target.kind === "citation" ? target.citation.document_version_id : target.documentVersionId;
+  const documentTitle =
+    target.kind === "citation" ? target.citation.document_title : target.documentTitle;
+  const initialPage = target.kind === "citation" ? target.citation.page_start : target.page;
+
+  // page and error initialise from the target; the parent gives this component a `key`
+  // per target, so selecting a different one remounts it fresh at the new page
   // rather than syncing through an effect.
   const [numPages, setNumPages] = useState<number | null>(null);
-  const [page, setPage] = useState(citation.page_start);
+  const [page, setPage] = useState(initialPage);
   const [error, setError] = useState<string | null>(null);
   const [width, setWidth] = useState<number>(0);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -46,7 +65,7 @@ export function PdfViewer({
     return () => observer.disconnect();
   }, []);
 
-  const fileUrl = `/api/pdf/${citation.document_version_id}`;
+  const fileUrl = `/api/pdf/${documentVersionId}`;
 
   // Highlight the cited quote on the page so verification is a glance, not a re-read. The
   // PDF text layer is split into fragments that do not line up with the quote's boundaries,
@@ -55,9 +74,10 @@ export function PdfViewer({
   // recur elsewhere on the page — a highlight is an aid to find the text, not a claim about
   // it; the quote shown on the left is the verbatim record.
   const quoteWords = useMemo(() => {
-    const words = citation.quote.toLowerCase().match(/[a-z0-9]+/g) ?? [];
+    if (target.kind !== "citation") return new Set<string>();
+    const words = target.citation.quote.toLowerCase().match(/[a-z0-9]+/g) ?? [];
     return new Set(words.filter((w) => w.length >= 3));
-  }, [citation.quote]);
+  }, [target]);
 
   const highlightQuote = useCallback(
     (item: { str: string }) => {
@@ -85,8 +105,12 @@ export function PdfViewer({
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between gap-2 border-b border-neutral-200 px-3 py-2 dark:border-neutral-800">
         <div className="min-w-0">
-          <p className="truncate text-xs font-medium">{citation.document_title}</p>
-          <p className="text-xs text-neutral-500">{t.pdf.cited}: {pageDisplay(citation)}</p>
+          <p className="truncate text-xs font-medium">{documentTitle}</p>
+          <p className="text-xs text-neutral-500">
+            {target.kind === "citation"
+              ? `${t.pdf.cited}: ${pageDisplay(target.citation)}`
+              : `${t.pdf.unreadablePage}: ${target.page}`}
+          </p>
         </div>
         <button
           type="button"
@@ -140,7 +164,11 @@ export function PdfViewer({
                 width={width - 24}
                 renderTextLayer
                 renderAnnotationLayer
-                customTextRenderer={highlightQuote}
+                // No renderer at all on an unreadable page, rather than one that highlights
+                // nothing: there is no quote to find there, and running the matcher over a
+                // page opened precisely because its text did not extract would be looking
+                // for something this system already said it could not read.
+                customTextRenderer={target.kind === "citation" ? highlightQuote : undefined}
               />
             )}
           </Document>

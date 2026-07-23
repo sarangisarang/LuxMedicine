@@ -12,6 +12,17 @@
 // especially `noAnswer.verification_failed` and everything under `translation`. A
 // machine-chosen safety string is the same category of problem as a machine-written answer.
 
+// Passed to `unreadable()` when the caller renders the page numbers itself rather than
+// printing them. Splitting the returned sentence on this marker keeps each language's word
+// order intact — German puts the list after "Die Seiten", Georgian puts it mid-sentence — so
+// the numbers become clickable without any translation being cut into fragments, which is how
+// a sentence gets reassembled wrong in the one language nobody here reads.
+//
+// Deliberately visible ASCII rather than a control character: an invisible marker that leaks
+// into the UI is unfindable by eye and by grep. This project has already lost time to a U+0001
+// that two greps could not see.
+export const PAGES_SLOT = "{{pages}}";
+
 export type UiLang = "en" | "de" | "ka";
 
 export const UI_LANGUAGES: { code: UiLang; label: string }[] = [
@@ -99,6 +110,9 @@ type Strings = {
   };
   rejected: (n: number) => string;
   superseded: (label: string | null) => string;
+  // Called with the joined page list for plain text, or with PAGES_SLOT when the caller wants
+  // to render the numbers itself (see PAGES_SLOT) — every translation must interpolate its
+  // argument exactly once for that to work.
   unreadable: (pages: string) => string;
   // Against a single quote whose OWN page lost text. Distinct from `unreadable`, which lists
   // a document's damaged pages as a set: a page lost entirely yields no quote, so that note
@@ -113,6 +127,10 @@ type Strings = {
   };
   pdf: {
     cited: string;
+    // Header label when the viewer was opened at a page nothing was quoted from — an
+    // unreadable page. It must NOT say "cited": no quote came from there, that is the point
+    // of opening it.
+    unreadablePage: string;
     prev: string;
     next: string;
     close: string;
@@ -199,6 +217,7 @@ export const STRINGS: Record<UiLang, Strings> = {
     },
     pdf: {
       cited: "cited",
+      unreadablePage: "unreadable page",
       prev: "‹ Prev",
       next: "Next ›",
       close: "Close",
@@ -290,6 +309,7 @@ export const STRINGS: Record<UiLang, Strings> = {
     },
     pdf: {
       cited: "zitiert",
+      unreadablePage: "nicht lesbare Seite",
       prev: "‹ Zurück",
       next: "Weiter ›",
       close: "Schließen",
@@ -374,6 +394,7 @@ export const STRINGS: Record<UiLang, Strings> = {
     },
     pdf: {
       cited: "ციტირებულია",
+      unreadablePage: "წაუკითხავი გვერდი",
       prev: "‹ წინა",
       next: "შემდეგი ›",
       close: "დახურვა",

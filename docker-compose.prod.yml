@@ -99,7 +99,17 @@ services:
     # `start`, not `start-dev`: production mode. --import-realm imports the realm on first boot
     # only (the Postgres persists it after), so editing the realm later is done in the admin
     # console or a re-import, not by editing this file.
-    command: ["start", "--import-realm", "--optimized"]
+    #
+    # **No `--optimized`.** That flag tells Keycloak to skip the build step and use the build
+    # options baked into the image — and the stock `quay.io/keycloak/keycloak` image is built
+    # for its default database, not Postgres. With it, `KC_DB: postgres` below is read, warned
+    # about ("build time options ... will NOT be used until another build is run"), and
+    # ignored; the container then exits 2. The cohost compose dropped it after that outage;
+    # this file kept it and the running container survived only because nothing had restarted
+    # it since. A restart on 2026-07-23 turned a latent misconfiguration into a live 502 —
+    # the same shape as the nginx upstream cache: correct-looking config, wrong on the next
+    # recreate. Dropping the flag costs a few seconds of build on boot and nothing else.
+    command: ["start", "--import-realm"]
     environment:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak  # gitleaks:allow — a JDBC URL, no secret (password is ${KEYCLOAK_DB_PASSWORD})
