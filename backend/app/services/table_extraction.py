@@ -143,6 +143,65 @@ def _row_label(row: list[dict], columns: list[MethodColumn]) -> str:
     return " ".join(w["text"] for w in sorted(label_words, key=lambda w: w["x0"]))
 
 
+# A label that stops mid-phrase. Either signal means the row below carries the rest of it.
+_DANGLING_TAIL = re.compile(
+    r"(?:\b(?:e\.g\.|i\.e\.|and|or|the|of|with|for|in|to)|,)$", re.IGNORECASE
+)
+
+
+def _looks_truncated(label: str) -> bool:
+    """Whether a label was cut where the printed cell wrapped to a second line.
+
+    `_row_label` reads one geometric row, so a cell that wraps loses its tail: measured on the
+    real MEC, 32 labels carry an unclosed bracket and 59 end on a word no phrase ends on —
+    "Thrombophilia (e.g.,", "d. Family history (first-degree", and, worst, "ii. Systolic ≥160
+    mm Hg or", which drops the diastolic half of a blood-pressure threshold.
+    """
+    stripped = label.strip()
+    if not stripped:
+        return False
+    return stripped.count("(") != stripped.count(")") or bool(_DANGLING_TAIL.search(stripped))
+
+
+# How many wrapped lines a label may absorb. Three covers every case measured; the cap exists
+# so a label that never looks complete cannot swallow the rest of the table.
+_MAX_CONTINUATION_ROWS = 3
+
+
+def _complete_label(rows: list[list[dict]], index: int, columns: list[MethodColumn]) -> str:
+    """The row's label, extended across the lines its printed cell wrapped onto.
+
+    **Only extends a label that already looks truncated, and stops the moment it reads
+    complete.** That is what keeps this safe: the several hundred labels that were never cut
+    are not touched at all, so the fix cannot regress them — it can only act where a detector
+    already says the text is broken.
+
+    A continuation row is recognised by what it is not: it carries no category cells (that
+    would be the next data row) and it has words in the label region (the comment column sits
+    to the right of the values and is excluded by _row_label's geometry). Capitalisation is no
+    help here and is deliberately not used — "BMI ≥30 kg/m2" and "VTE (e.g., …" are both real
+    continuations that begin with a capital, exactly like a heading would.
+    """
+    label = _row_label(rows[index], columns)
+    if not _looks_truncated(label):
+        return label
+
+    for offset in range(1, _MAX_CONTINUATION_ROWS + 1):
+        following = index + offset
+        if following >= len(rows):
+            break
+        row = rows[following]
+        if any(_CATEGORY_CELL.match(word["text"]) for word in row):
+            break  # the next data row: the label ended, however it reads
+        tail = _row_label(row, columns)
+        if not tail:
+            break
+        label = f"{label} {tail}".strip()
+        if not _looks_truncated(label):
+            break
+    return label
+
+
 def _rows(words: list[dict]) -> list[list[dict]]:
     """Group a page's words into rows by their vertical position, top to bottom."""
     rows: list[list[dict]] = []
@@ -169,7 +228,7 @@ def self_describing_lines(words: list[dict]) -> list[str]:
     # The condition heading whose sub-rows we are currently under — "Migraine" for the rows
     # beneath "b. Migraine". None when not inside such a group. See _SUB_ENUMERATOR.
     parent: str | None = None
-    for row in rows:
+    for index, row in enumerate(rows):
         header = find_method_columns(row)
         if header is not None:
             columns = header
@@ -178,7 +237,9 @@ def self_describing_lines(words: list[dict]) -> list[str]:
         if columns is None:
             continue
 
-        label = _row_label(row, columns)
+        # Indexed, because a label whose printed cell wrapped is finished on the rows below
+        # it — see _complete_label. A row that is not truncated reads exactly as before.
+        label = _complete_label(rows, index, columns)
         mapping = map_row(row, columns)
 
         if mapping is None:

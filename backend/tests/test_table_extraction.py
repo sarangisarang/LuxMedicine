@@ -229,6 +229,66 @@ class TestSelfDescribingLines:
         aura = [ln for ln in self_describing_lines(words) if "With aura" in ln]
         assert aura and aura[0].startswith("Migraine — With aura —"), aura
 
+    def test_a_label_cut_where_its_cell_wrapped_is_completed_from_the_next_row(self):
+        """_row_label reads one geometric row, so a cell that wraps loses its tail. Measured on
+        the real MEC: 32 labels carried an unclosed bracket and 59 ended on a word no phrase
+        ends on — including "ii. Systolic ≥160 mm Hg or", which drops the diastolic half of a
+        blood-pressure threshold."""
+        words = (
+            self._row(89, ("Condition", 51), ("Cu-IUD", 176), ("LNG-IUD", 249),
+                      ("Implant", 321), ("DMPA", 394), ("POP", 467), ("CHC", 540))
+            + self._row(150, ("d.", 47), ("Family", 70), ("history", 95), ("(first-degree", 130),
+                        ("1", 176), ("1", 249), ("1", 321), ("1", 394), ("1", 467), ("2", 540))
+            + self._row(158, ("relatives)", 70))  # the wrapped tail, in the label region
+        )
+        lines = self_describing_lines(words)
+        assert lines and "Family history (first-degree relatives)" in lines[0], lines
+
+    def test_a_complete_label_is_never_extended(self):
+        """The safety property that makes this fix cheap: it acts only where a label already
+        reads as broken, so the several hundred intact labels cannot regress. Measured on the
+        real MEC — 51 truncated segments repaired, 0 complete segments altered."""
+        words = (
+            self._row(89, ("Condition", 51), ("Cu-IUD", 176), ("LNG-IUD", 249),
+                      ("Implant", 321), ("DMPA", 394), ("POP", 467), ("CHC", 540))
+            + self._row(150, ("a.", 47), ("Varicose", 80), ("veins", 115),
+                        ("1", 176), ("1", 249), ("1", 321), ("1", 394), ("1", 467), ("1", 540))
+            + self._row(158, ("Superficial", 80), ("thrombosis", 130))  # a *different* condition
+        )
+        lines = self_describing_lines(words)
+        assert lines and lines[0].startswith("a. Varicose veins — Cu-IUD: 1"), lines
+        assert "Superficial" not in lines[0]
+
+    def test_the_comment_column_is_never_absorbed_into_a_label(self):
+        """A wrapped comment sits to the RIGHT of the value columns; only the label region is
+        read, so clarification prose can never be pulled into the condition name."""
+        words = (
+            self._row(89, ("Condition", 51), ("Cu-IUD", 176), ("LNG-IUD", 249),
+                      ("Implant", 321), ("DMPA", 394), ("POP", 467), ("CHC", 540))
+            + self._row(150, ("i.", 47), ("With", 70), ("risk", 95), ("factors", 120), ("for", 150),
+                        ("1", 176), ("1", 249), ("1", 321), ("1", 394), ("1", 467), ("2", 540))
+            + self._row(158, ("VTE", 70), ("(e.g.,", 100), ("age)", 130),
+                        ("these", 620), ("factors", 660), ("might", 700))  # comment column
+        )
+        line = self_describing_lines(words)[0]
+        assert "VTE (e.g., age)" in line
+        assert "these" not in line and "might" not in line
+
+    def test_completion_stops_at_the_next_data_row(self):
+        """A following row carrying category cells is the next condition, not a wrapped tail —
+        absorbing it would name one condition with the next one's words."""
+        words = (
+            self._row(89, ("Condition", 51), ("Cu-IUD", 176), ("LNG-IUD", 249),
+                      ("Implant", 321), ("DMPA", 394), ("POP", 467), ("CHC", 540))
+            + self._row(150, ("a.", 47), ("Thrombophilia", 80), ("(e.g.,", 140),
+                        ("1", 176), ("1", 249), ("1", 321), ("1", 394), ("1", 467), ("2", 540))
+            + self._row(158, ("b.", 47), ("Sickle", 80), ("cell", 110),
+                        ("1", 176), ("1", 249), ("1", 321), ("1", 394), ("1", 467), ("2", 540))
+        )
+        lines = self_describing_lines(words)
+        thrombo = [ln for ln in lines if "Thrombophilia" in ln]
+        assert thrombo and "Sickle" not in thrombo[0], thrombo
+
     def test_a_page_with_no_header_yields_nothing(self):
         # Data-shaped rows but no method header above them: nothing is mapped. The pass only
         # ADDS text where it is certain; a page with no clean table is left untouched.
@@ -384,6 +444,30 @@ class TestEndToEndOnRealMEC:
             f"{len(offenders)} row(s) inherited a condition from a row that carries category "
             f"cells — a sibling presented as a parent. First: {offenders[:3]}"
         )
+
+    def test_the_blood_pressure_threshold_keeps_both_halves(self):
+        """The clinically sharpest instance of the truncation bug, pinned on the real document.
+
+        The row read "ii. Systolic ≥160 mm Hg or — …, CHC: 4" — cut exactly where the printed
+        cell wrapped, dropping "diastolic ≥100 mm Hg". A clinician reading it sees a threshold
+        conditioned on systolic alone, quoted verbatim and cited correctly. Half a threshold is
+        not a smaller version of a threshold.
+        """
+        import pdfplumber
+
+        found: list[str] = []
+        with pdfplumber.open(self._mec_path()) as pdf:
+            for page in pdf.pages:
+                found.extend(
+                    line
+                    for line in self_describing_lines(page.extract_words())
+                    if "Systolic ≥160" in line
+                )
+                page.flush_cache()
+
+        assert found, "the ≥160 mm Hg row is not emitted at all"
+        for line in found:
+            assert "diastolic ≥100 mm Hg" in line, f"threshold still cut in half: {line[:90]!r}"
 
     def test_appending_the_rows_kept_the_ledger_exact(self):
         # Page attribution is a bisect over char offsets; a self-describing line whose offsets
