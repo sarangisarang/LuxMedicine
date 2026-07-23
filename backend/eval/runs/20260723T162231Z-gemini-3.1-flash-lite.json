@@ -1,6 +1,6 @@
 {
   "summary": {
-    "at": "2026-07-23T15:19:36.192046+00:00",
+    "at": "2026-07-23T16:22:31.199944+00:00",
     "model": "gemini-3.1-flash-lite",
     "cache": "off",
     "endpoint": "https://generativelanguage.googleapis.com/",
@@ -69,10 +69,9 @@
     "rejected_quotes": {
       "total": 3,
       "by_verdict": {
-        "paraphrase": 2,
-        "synthesis": 1
+        "paraphrase": 3
       },
-      "inventions": 1
+      "inventions": 0
     }
   },
   "outcomes": [
@@ -87,7 +86,7 @@
       "pages": [],
       "rejected": 0,
       "diagnoses": [],
-      "elapsed_s": 0.94,
+      "elapsed_s": 1.21,
       "expect_pages": [],
       "error": null
     },
@@ -102,7 +101,7 @@
       "pages": [],
       "rejected": 0,
       "diagnoses": [],
-      "elapsed_s": 0.94,
+      "elapsed_s": 0.93,
       "expect_pages": [],
       "error": null
     },
@@ -117,7 +116,7 @@
       "pages": [],
       "rejected": 0,
       "diagnoses": [],
-      "elapsed_s": 1.03,
+      "elapsed_s": 0.84,
       "expect_pages": [],
       "error": null
     },
@@ -132,7 +131,7 @@
       "pages": [],
       "rejected": 0,
       "diagnoses": [],
-      "elapsed_s": 0.79,
+      "elapsed_s": 0.93,
       "expect_pages": [],
       "error": null
     },
@@ -147,7 +146,7 @@
       "pages": [],
       "rejected": 0,
       "diagnoses": [],
-      "elapsed_s": 0.91,
+      "elapsed_s": 0.89,
       "expect_pages": [],
       "error": null
     },
@@ -162,7 +161,7 @@
       "pages": [],
       "rejected": 0,
       "diagnoses": [],
-      "elapsed_s": 0.99,
+      "elapsed_s": 0.87,
       "expect_pages": [],
       "error": null
     },
@@ -177,7 +176,7 @@
       "pages": [],
       "rejected": 0,
       "diagnoses": [],
-      "elapsed_s": 0.87,
+      "elapsed_s": 0.86,
       "expect_pages": [],
       "error": null
     },
@@ -192,7 +191,7 @@
       "pages": [],
       "rejected": 0,
       "diagnoses": [],
-      "elapsed_s": 0.99,
+      "elapsed_s": 0.82,
       "expect_pages": [],
       "error": null
     },
@@ -207,7 +206,7 @@
       "pages": [],
       "rejected": 0,
       "diagnoses": [],
-      "elapsed_s": 0.93,
+      "elapsed_s": 0.82,
       "expect_pages": [],
       "error": null
     },
@@ -222,7 +221,7 @@
       "pages": [],
       "rejected": 0,
       "diagnoses": [],
-      "elapsed_s": 0.97,
+      "elapsed_s": 0.84,
       "expect_pages": [],
       "error": null
     },
@@ -244,7 +243,7 @@
       ],
       "rejected": 0,
       "diagnoses": [],
-      "elapsed_s": 1.15,
+      "elapsed_s": 1.11,
       "expect_pages": [
         69,
         123
@@ -269,7 +268,7 @@
       ],
       "rejected": 0,
       "diagnoses": [],
-      "elapsed_s": 1.14,
+      "elapsed_s": 1.1,
       "expect_pages": [
         69,
         123
@@ -302,7 +301,7 @@
           "quote": "b. Decompensated (impaired liver function) 4 Evidence: No direct evidence was identified on CHC use among persons with\ndecompensated cirrhosis (Supplementary Ap"
         }
       ],
-      "elapsed_s": 1.7,
+      "elapsed_s": 1.75,
       "expect_pages": [
         22,
         126
@@ -327,7 +326,7 @@
       ],
       "rejected": 0,
       "diagnoses": [],
-      "elapsed_s": 1.02,
+      "elapsed_s": 0.94,
       "expect_pages": [],
       "error": null
     },
@@ -346,7 +345,7 @@
       ],
       "rejected": 0,
       "diagnoses": [],
-      "elapsed_s": 1.01,
+      "elapsed_s": 0.94,
       "expect_pages": [],
       "error": null
     },
@@ -371,7 +370,7 @@
       ],
       "rejected": 0,
       "diagnoses": [],
-      "elapsed_s": 1.45,
+      "elapsed_s": 1.27,
       "expect_pages": [],
       "error": null
     },
@@ -393,13 +392,13 @@
       "rejected": 1,
       "diagnoses": [
         {
-          "verdict": "synthesis",
-          "is_invention": true,
-          "detail": "39/42 phrases from the cited passage, 1 from elsewhere \u2014 stitched",
+          "verdict": "paraphrase",
+          "is_invention": false,
+          "detail": "100% of its words are in the cited passage, reworded",
           "quote": "Clarification (DRSP POP): Persons with known DRSP POP with known hyperkalemia should not use DRSP POPs because of the risk for worsening hyperkalemia (category "
         }
       ],
-      "elapsed_s": 1.64,
+      "elapsed_s": 1.33,
       "expect_pages": [],
       "error": null
     },
@@ -417,7 +416,7 @@
       "pages": [],
       "rejected": 0,
       "diagnoses": [],
-      "elapsed_s": 0.92,
+      "elapsed_s": 0.88,
       "expect_pages": [],
       "error": null
     },
@@ -435,7 +434,7 @@
       "pages": [],
       "rejected": 0,
       "diagnoses": [],
-      "elapsed_s": 0.87,
+      "elapsed_s": 0.89,
       "expect_pages": [],
       "error": null
     },
@@ -453,7 +452,7 @@
       "pages": [],
       "rejected": 0,
       "diagnoses": [],
-      "elapsed_s": 0.87,
+      "elapsed_s": 0.84,
       "expect_pages": [],
       "error": null
     },
@@ -468,7 +467,7 @@
       "pages": [],
       "rejected": 0,
       "diagnoses": [],
-      "elapsed_s": 1.07,
+      "elapsed_s": 0.85,
       "expect_pages": [],
       "error": null
     },
@@ -483,7 +482,7 @@
       "pages": [],
       "rejected": 0,
       "diagnoses": [],
-      "elapsed_s": 0.84,
+      "elapsed_s": 0.81,
       "expect_pages": [],
       "error": null
     },
@@ -498,7 +497,7 @@
       "pages": [],
       "rejected": 0,
       "diagnoses": [],
-      "elapsed_s": 0.87,
+      "elapsed_s": 0.89,
       "expect_pages": [],
       "error": null
     },
@@ -513,7 +512,7 @@
       "pages": [],
       "rejected": 0,
       "diagnoses": [],
-      "elapsed_s": 0.87,
+      "elapsed_s": 0.74,
       "expect_pages": [],
       "error": null
     },
@@ -528,7 +527,7 @@
       "pages": [],
       "rejected": 0,
       "diagnoses": [],
-      "elapsed_s": 0.99,
+      "elapsed_s": 0.79,
       "expect_pages": [],
       "error": null
     },
@@ -549,7 +548,7 @@
       ],
       "rejected": 0,
       "diagnoses": [],
-      "elapsed_s": 0.95,
+      "elapsed_s": 0.93,
       "expect_pages": [],
       "error": null
     },
@@ -575,7 +574,7 @@
           "quote": "fluid retention might\nworsen heart failure in persons with peripartum cardiomyopathy."
         }
       ],
-      "elapsed_s": 1.51,
+      "elapsed_s": 1.45,
       "expect_pages": [],
       "error": null
     },
@@ -594,7 +593,7 @@
       ],
       "rejected": 0,
       "diagnoses": [],
-      "elapsed_s": 1.0,
+      "elapsed_s": 0.94,
       "expect_pages": [],
       "error": null
     },
@@ -609,7 +608,7 @@
       "pages": [],
       "rejected": 0,
       "diagnoses": [],
-      "elapsed_s": 0.67,
+      "elapsed_s": 0.7,
       "expect_pages": [],
       "error": null
     }

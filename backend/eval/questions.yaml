@@ -39,6 +39,16 @@
 # all `withdrawn_source`, not `not_covered`, because the difference between "we never had it"
 # and "we removed it" is a fact about us that a bucket must not hide.
 #
+# **The comparison baseline is 20260723T162231Z, and inventions are only comparable from it.**
+# Every earlier run's `inventions` number rested on a `_corpus_contains` that searched the whole
+# chunks table — withdrawn documents, superseded rows, and 823 bibliography chunks #50 excludes
+# from retrieval — so a fabricated 4-gram that happened to exist in unreachable text scored
+# `inventions: 0` and a real answer whose 4-gram newly appeared there scored a false invention.
+# References are the worst of it: they are dense with clinically-plausible n-grams (paper titles,
+# conditions, author terminology), all 823 in the medical sector, so the false-negative was not
+# theoretical but concentrated exactly where fabrication matters most. Fixed 2026-07-23; this run
+# is the first taken on the corrected predicate. Do NOT compare its inventions to an older run.
+#
 # **NOT YET WRITTEN, and the first thing to add after the provider comparison: a cross-cutting
 # question.** The corpus is no longer "medical + legal" in general — it is two narrow verticals,
 # reproductive health and German construction fee law, with nothing between them. The sector
