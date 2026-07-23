@@ -47,6 +47,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import re
 import sys
 import time
 from dataclasses import asdict, dataclass, field
@@ -186,25 +187,62 @@ async def check_ground_truth(session: AsyncSession, questions: list[Question]) -
     whether an active page still *answers* — only a reader can — so it warns rather than fails,
     and a warning that goes unread is at least a warning that was printed next to the number it
     affects.
+
+    **Scoped to the question's own document, and the first version was not.** Counting chunks
+    on "page 69" across the whole corpus counts 110 of them from 20 unrelated documents, so the
+    check could not fire for any realistic page: only 42 of the first 500 page numbers had no
+    active chunk anywhere. It reported "0 stale" and that meant "this instrument cannot
+    discriminate", not "the ground truth is fresh" — the exact mistake this file's own warnings
+    exist to catch, made inside the check written to catch it.
+
+    `Question.source` is free text ("CDC US MEC 2024"), so it is matched loosely against the
+    document title and issuing org. A question whose source names nothing in the corpus is
+    itself reported, because an expectation pointing at an absent document is the stalest kind.
     """
     warnings: list[str] = []
     for question in questions:
+        if not question.expect_pages:
+            continue
+        if not question.source:
+            warnings.append(
+                f"{question.id}: has expect_pages but no `source`, so the pages cannot be "
+                "scoped to a document and are not checked at all"
+            )
+            continue
+
+        # Loose match on the free-text source: any word of it long enough to be distinctive.
+        terms = [w for w in re.findall(r"[A-Za-z]{3,}", question.source)]
+        if not terms:
+            continue
+        clause = " OR ".join(
+            f"(d.title ILIKE :t{i} OR d.issuing_org ILIKE :t{i})" for i in range(len(terms))
+        )
+        params = {f"t{i}": f"%{term}%" for i, term in enumerate(terms)}
+
         for page in question.expect_pages:
             row = (
                 await session.execute(
                     sql_text(
-                        "SELECT count(*) FILTER (WHERE superseded_by IS NULL) AS active, "
-                        "       count(*) FILTER (WHERE superseded_by IS NOT NULL) AS retired "
-                        "FROM chunks WHERE page_start = :p"
+                        "SELECT count(*) FILTER (WHERE c.superseded_by IS NULL) AS active, "
+                        "       count(*) FILTER (WHERE c.superseded_by IS NOT NULL) AS retired "
+                        "FROM chunks c "
+                        "JOIN document_versions v ON c.document_version_id = v.id "
+                        "JOIN documents d ON v.document_id = d.id "
+                        f"WHERE c.page_start = :p AND ({clause})"
                     ),
-                    {"p": page},
+                    {"p": page, **params},
                 )
             ).one()
             if row.active == 0:
-                detail = f"{row.retired} retired chunk(s) remain" if row.retired else "no chunks at all"
+                detail = (
+                    f"{row.retired} retired chunk(s) remain"
+                    if row.retired
+                    else "no chunks at all from that source"
+                )
                 warnings.append(
-                    f"{question.id}: expect_pages lists p{page}, which now holds {detail} — "
-                    "the expectation predates the corpus and will mis-score this question"
+                    f"{question.id}: expect_pages lists p{page} of {question.source!r}, which "
+                    f"now holds {detail} — the expectation predates the corpus and will "
+                    "mis-score this question"
                 )
     return warnings
 

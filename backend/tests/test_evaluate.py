@@ -12,11 +12,17 @@ checking.
 
 from __future__ import annotations
 
+import hashlib
+import uuid
 from pathlib import Path
 
 import pytest
+from sqlalchemy import insert
 
 from app.cli.evaluate import Outcome, Question, load_questions, report
+from app.core.config import get_settings
+
+DIM = get_settings().embedding_dim
 
 
 def make(
@@ -214,3 +220,140 @@ class TestQuestionsYaml:
         assert sum(q.expect == "answerable" for q in questions) >= 9
         assert sum(q.expect == "not_covered" for q in questions) >= 5
         assert sum(q.expect == "withdrawn_source" for q in questions) >= 8
+
+
+class TestGroundTruthCheck:
+    """`expect_pages` is coupled to ingestion and only this warns about it.
+
+    Supersession retires a row from retrieval while leaving it in the table, and a re-read row
+    can land on a different page than the one it replaced — so a page written against an older
+    corpus goes stale in two opposite-looking ways, and both surface as a verdict about the
+    SYSTEM.
+
+    **The first version of this check could not fire.** It counted chunks on a page across the
+    whole corpus, where page 69 holds 110 active chunks from 20 unrelated documents; only 42 of
+    the first 500 page numbers had no active chunk anywhere. It reported "0 stale" and that
+    meant "cannot discriminate", not "fresh". So the test that matters is not "does it stay
+    quiet on a good corpus" — it is "does it speak when the page really is empty for THAT
+    source", which is the case the unscoped version was blind to.
+    """
+
+    @staticmethod
+    async def _seed(session, *, title: str, org: str, page: int, superseded: bool):
+        from app.models.chunk import Chunk
+        from app.models.document import Document, DocumentVersion, VersionStatus
+
+        marker = uuid.uuid4().hex[:8]
+        document = Document(title=f"{title} {marker}", issuing_org=org, region="EU")
+        session.add(document)
+        await session.flush()
+        version = DocumentVersion(
+            document_id=document.id,
+            version_label="2026",
+            file_hash=hashlib.sha256(marker.encode()).hexdigest(),
+            storage_uri=f"/store/{marker}.pdf",
+            status=VersionStatus.ACTIVE,
+        )
+        session.add(version)
+        await session.flush()
+
+        first, second = uuid.uuid4(), uuid.uuid4()
+        await session.execute(
+            insert(Chunk),
+            [
+                {
+                    "id": first,
+                    "document_version_id": version.id,
+                    "ordinal": 0,
+                    "page_start": page,
+                    "page_end": page,
+                    "section": None,
+                    "content": f"seeded row on page {page}",
+                    "embedding": [0.0] * DIM,
+                },
+                {
+                    "id": second,
+                    "document_version_id": version.id,
+                    "ordinal": 1,
+                    # The replacement lands on a DIFFERENT page — the drift being guarded.
+                    "page_start": page + 1,
+                    "page_end": page + 1,
+                    "section": None,
+                    "content": f"re-read row, now on page {page + 1}",
+                    "embedding": [0.0] * DIM,
+                },
+            ],
+        )
+        # Pointed after both exist, exactly as augment_tables does it — the FK is not
+        # deferrable, so a row cannot reference a replacement that is not inserted yet.
+        if superseded:
+            from sqlalchemy import update
+
+            await session.execute(
+                update(Chunk).where(Chunk.id == first).values(superseded_by=second)
+            )
+        await session.commit()
+        return document.title
+
+    async def test_it_warns_when_the_expected_page_holds_only_retired_rows(self, session):
+        """The case the unscoped version could never reach."""
+        from app.cli.evaluate import Question, check_ground_truth
+
+        page = 4242  # far from any real fixture's page numbers
+        title = await self._seed(
+            session, title="Ground Truth Probe", org="ESC", page=page, superseded=True
+        )
+        question = Question(
+            id="probe", text="?", expect="answerable", source=title, expect_pages=[page]
+        )
+
+        warnings = await check_ground_truth(session, [question])
+
+        assert warnings, "a page whose only rows are retired must be reported"
+        assert "probe" in warnings[0] and str(page) in warnings[0]
+        assert "retired" in warnings[0]
+
+    async def test_it_stays_quiet_when_the_page_still_has_active_rows(self, session):
+        from app.cli.evaluate import Question, check_ground_truth
+
+        page = 4343
+        title = await self._seed(
+            session, title="Ground Truth Fresh", org="ESC", page=page, superseded=False
+        )
+        question = Question(
+            id="fresh", text="?", expect="answerable", source=title, expect_pages=[page]
+        )
+
+        assert await check_ground_truth(session, [question]) == []
+
+    async def test_a_question_without_a_source_is_reported_not_skipped(self, session):
+        """An expectation that cannot be scoped is unverifiable, and silence would read as
+        verified — which is the failure mode this whole check exists for."""
+        from app.cli.evaluate import Question, check_ground_truth
+
+        question = Question(id="nosource", text="?", expect="answerable", expect_pages=[7])
+        warnings = await check_ground_truth(session, [question])
+
+        assert warnings and "nosource" in warnings[0] and "source" in warnings[0]
+
+    async def test_the_scope_is_the_document_not_the_page_number(self, session):
+        """The bug itself: another document having content on the same page must not clear the
+        warning. Page numbers repeat across a corpus — 20 documents share page 69."""
+        from app.cli.evaluate import Question, check_ground_truth
+
+        page = 4444
+        title = await self._seed(
+            session, title="Scoped Probe", org="ESC", page=page, superseded=True
+        )
+        # A DIFFERENT document with a live chunk on the very same page.
+        await self._seed(session, title="Unrelated Doc", org="AHA", page=page, superseded=False)
+
+        question = Question(
+            id="scoped", text="?", expect="answerable", source=title, expect_pages=[page]
+        )
+        warnings = await check_ground_truth(session, [question])
+
+        assert warnings, (
+            "an unrelated document's chunk on the same page silenced the warning — the check "
+            "is counting page numbers instead of the question's own source"
+        )
