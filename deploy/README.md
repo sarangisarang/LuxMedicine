@@ -7,6 +7,25 @@ frontend, the API, and Keycloak; everything else stays on the internal Docker ne
 - `nginx/templates/luxmedicine.conf.template` — the reverse proxy + TLS config.
 - `.env.prod.example` — copy to `.env.prod` (git-ignored) and fill in.
 
+## Co-hosted deploys: reload nginx after rebuilding `web` or `keycloak`
+
+**This is an outage if it is skipped, and it looks like a code failure.** On the co-hosted
+stack, ATOB's nginx proxies to the Docker network aliases `lux-web` and `lux-keycloak`. nginx
+resolves an upstream hostname **once, at startup**, and caches the address. Rebuilding a
+container gives it a new IP, so nginx keeps connecting to the old one and every page returns
+502 while the container itself is healthy and serving.
+
+Seen exactly that way (2026-07-23): `docker compose up -d web` moved the frontend from
+172.18.0.6 to .0.7, DNS resolved correctly, `wget http://lux-web:3000/` from inside nginx
+worked — and the site was 502 because nginx was still dialling 172.18.0.6.
+
+    docker exec deploy-nginx-1 nginx -t          # config still valid
+    docker exec deploy-nginx-1 nginx -s reload   # graceful: workers finish in flight
+
+`reload` is not `restart` and is emphatically not `up`/`recreate` — ATOB's nginx must not be
+recreated (its container IP is pinned in this stack's `extra_hosts`, and it serves a live
+business). Rebuilding `api` does not need this: nothing proxies to it by name.
+
 ## One prerequisite that is CODE, not infrastructure — read first
 
 This infra is ready, but the product is not fully deployable until the code gap below closes. It is
