@@ -46,6 +46,18 @@ worked — and the site was 502 because nginx was still dialling 172.18.0.6.
     docker exec deploy-nginx-1 nginx -t          # config still valid
     docker exec deploy-nginx-1 nginx -s reload   # graceful: workers finish in flight
 
+## After every `up -d`: confirm the running stack matches the file
+
+    deploy/check-drift.sh    # exit 0 = every container matches the compose file; exit 1 = drift
+
+A container keeps running the config it was *created* from, not the file on disk, so a fixed
+file and a stale container can disagree indefinitely with nothing to show for it — Keycloak's
+`--optimized` sat that way for three days until a restart turned the gap into a 502. This
+compares each container's `com.docker.compose.config-hash` label against the hash recomputed
+from the file and exits 1 on any mismatch, so "I edited the file" and "the fix is actually
+running" stop being the same claim. Run it after the reload above; a drift means recreate that
+service, not just reload nginx.
+
 `reload` is not `restart` and is emphatically not `up`/`recreate` — ATOB's nginx must not be
 recreated (its container IP is pinned in this stack's `extra_hosts`, and it serves a live
 business). Rebuilding `api` does not need this: nothing proxies to it by name.
