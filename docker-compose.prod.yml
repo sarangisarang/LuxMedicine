@@ -14,7 +14,17 @@
 # Bring up:  docker compose --env-file deploy/.env.prod -f docker-compose.prod.yml up -d --build
 # TLS first run and DNS: see deploy/README.md — the certs must exist before nginx starts on 443.
 
-name: luxmedicine-prod
+# **Deliberately NOT `luxmedicine-prod`.** That name belongs to the live co-tenant stack, which
+# is `docker-compose.cohost.yml`. When both files shared it, `-f docker-compose.prod.yml up`
+# on the co-hosted box silently *replaced* the running co-tenant containers with standalone
+# ones — a full outage that docker had no reason to warn about, because both files were valid
+# and only the intent differed (it happened, 2026-07-23, ~12 min down). A distinct project name
+# is the structural guard a README note is not: run this file against that box now and it builds
+# a SEPARATE `luxmedicine-standalone` project beside the live one instead of clobbering it —
+# visibly wrong (duplicate containers, a port-publish clash) rather than invisibly destructive.
+# This file is the reference deployment for a dedicated server, where it is the only stack and
+# the name is immaterial; there, standalone is exactly what it is.
+name: luxmedicine-standalone
 
 networks:
   internal:
