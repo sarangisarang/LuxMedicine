@@ -139,6 +139,10 @@ def _base_query(embedding: list[float], *, sector: Sector, include_archived: boo
         .where(Document.sector == str(sector))
         # A bibliography entry is not guidance and must not source an answer (#50).
         .where(Chunk.is_reference.is_(False))
+        # A row a later reading replaced must not compete with its replacement: a truncated
+        # label and its completed twin answer the same question, and the truncated one gives
+        # half a criterion. Kept in the table for the audit trail, out of the index.
+        .where(Chunk.superseded_by.is_(None))
         .order_by(Chunk.embedding.cosine_distance(embedding))
     )
 
@@ -208,6 +212,7 @@ WITH searchable AS (
     WHERE v.status = ANY(CAST(:statuses AS version_status[]))
       AND d.sector = :sector
       AND NOT c.is_reference
+      AND c.superseded_by IS NULL
 ),
 vector_hits AS (
     SELECT id, ROW_NUMBER() OVER (ORDER BY embedding <=> CAST(:query_vector AS vector)) AS rank

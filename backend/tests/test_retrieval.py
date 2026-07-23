@@ -15,7 +15,7 @@ import hashlib
 import uuid
 
 import pytest
-from sqlalchemy import insert
+from sqlalchemy import insert, select, update
 
 from app.core.vocabulary import Sector
 from app.core.config import get_settings
@@ -361,3 +361,84 @@ async def test_limit_is_respected(session, embedder):
 
 async def test_an_empty_corpus_returns_nothing_rather_than_failing(session, embedder):
     assert await search(session, "something nobody wrote about", embedder, limit=10, sector=Sector.MEDICAL) is not None
+
+
+async def test_a_superseded_chunk_leaves_the_index_but_stays_in_the_table(session, embedder):
+    """A row a later reading replaced must stop competing with its replacement.
+
+    The case this exists for: augment_tables is insert-only (0008 forbids deleting a cited
+    chunk), so completing a truncated label ADDS the corrected row beside the flawed one. Both
+    were then retrievable, and "ii. Systolic ≥160 mm Hg or" could out-rank "Systolic ≥160 mm Hg
+    or diastolic ≥100 mm Hg" — half a threshold, quoted verbatim and cited correctly.
+
+    Both halves are asserted, because either alone is the wrong outcome: gone from retrieval,
+    still present in the table so the audit trail resolves.
+    """
+    version = await make_version(
+        session,
+        title="Superseded Rows",
+        org="ESC",
+        label="2026",
+        status=VersionStatus.ACTIVE,
+        texts=["Enalapril truncated reading", "Enalapril complete reading"],
+        embedder=embedder,
+    )
+    await session.commit()
+
+    rows = (
+        await session.execute(
+            select(Chunk.id, Chunk.content)
+            .where(Chunk.document_version_id == version.id)
+            .order_by(Chunk.ordinal)
+        )
+    ).all()
+    old_id, new_id = rows[0][0], rows[1][0]
+
+    before = await search(session, "enalapril", embedder, limit=SEARCH_DEPTH, sector=Sector.MEDICAL)
+    assert old_id in {h.chunk_id for h in before}, "the fixture is not retrievable to begin with"
+
+    await session.execute(update(Chunk).where(Chunk.id == old_id).values(superseded_by=new_id))
+    await session.commit()
+
+    after = {h.chunk_id for h in await search(session, "enalapril", embedder, limit=SEARCH_DEPTH, sector=Sector.MEDICAL)}
+    assert old_id not in after, "a superseded chunk is still answering"
+    assert new_id in after, "the replacement must remain retrievable"
+
+    still_there = (
+        await session.execute(select(Chunk.id).where(Chunk.id == old_id))
+    ).scalar_one_or_none()
+    assert still_there == old_id, "the superseded chunk was deleted — the audit trail needs it"
+
+
+async def test_the_hybrid_path_excludes_superseded_chunks_too(session, embedder):
+    """Two queries, two filters. This project has twice shipped a field added to the ORM path
+    and forgotten in the hand-written hybrid SQL (see retrieval._search_hit), and a guarantee
+    that holds on one path is not a guarantee."""
+    from app.services.retrieval import hybrid_search
+
+    version = await make_version(
+        session,
+        title="Superseded Hybrid",
+        org="ACC",
+        label="2026",
+        status=VersionStatus.ACTIVE,
+        texts=["Enalapril hybrid truncated", "Enalapril hybrid complete"],
+        embedder=embedder,
+    )
+    await session.commit()
+
+    rows = (
+        await session.execute(
+            select(Chunk.id).where(Chunk.document_version_id == version.id).order_by(Chunk.ordinal)
+        )
+    ).all()
+    old_id, new_id = rows[0][0], rows[1][0]
+
+    await session.execute(update(Chunk).where(Chunk.id == old_id).values(superseded_by=new_id))
+    await session.commit()
+
+    hits = {
+        h.chunk_id
+        for h in await hybrid_search(session, "enalapril hybrid", embedder, limit=SEARCH_DEPTH, sector=Sector.MEDICAL)
+    }
+    assert old_id not in hits, "the hybrid path still returns superseded chunks"
