@@ -18,19 +18,34 @@
 # `source` records where we believe the answer is, so a wrong-document answer is visible as
 # a wrong-document answer rather than counted as a success.
 #
-# The corpus this is written against (2026-07-17):
-#   CDC US MEC 2024   — contraception  1120 chunks, 129pp
-#   NHLBI EPR-3 2007  — asthma          719 chunks, 440pp
-#   KDIGO 2012        — CKD             579 chunks, 163pp
-#   CDC US SPR 2024   — contraception   316 chunks,  80pp
-#   NICE NG106 2018   — heart failure    57 chunks,  39pp
+# The corpus this is written against (2026-07-23). ACTIVE:
+#   CDC US MEC 2024   — contraception  1546 chunks, 129pp
+#   CDC US SPR 2024   — contraception   482 chunks,  80pp
+#   HOAI 2023 / VgV / GWB — German construction and procurement law (sector: legal)
+#
+# WITHDRAWN, and each for a different reason — the distinction matters when reading a
+# `withdrawn_declined`:
+#   KDIGO 2012        — CKD            licence (#49)
+#   NICE NG106 2018   — heart failure  licence (#49)
+#   NHLBI EPR-3 2007  — asthma         corpus focus, 2026-07-23. Not a licence problem: the
+#                                      only document in a domain nothing else covered, a US
+#                                      guideline where German practice follows AWMF/NVL, and
+#                                      the most damaged file here (116 of 440 pages holding
+#                                      no chunk, 88 more partly read). Reversible with
+#                                      `app.cli.withdraw --org NHLBI --restore`.
+#
+# **The medical corpus is now reproductive health only.** Any new question must be answerable
+# from CDC MEC or SPR, or it belongs in `not_covered` — and asthma, CKD and heart failure are
+# all `withdrawn_source`, not `not_covered`, because the difference between "we never had it"
+# and "we removed it" is a fact about us that a bucket must not hide.
 #
 # **BEFORE ADDING QUESTIONS: check `python -m app.cli.coverage` first.**
 #
 # Writing questions by reading a PDF measures the PDF, not the index — and those differ.
-# NHLBI EPR-3 is 440 pages of which 324 are indexed: 116 pages hold no live chunk at all, and a
-# further 73 are partly damaged (189 recorded unreadable, so NOT-ANSWERABLE is the floor of the
-# hole, not its size). A question written from any of those is unanswerable by construction.
+# The case that established it: NHLBI EPR-3 was 440 pages of which 324 were indexed — 116 with
+# no live chunk at all and 88 more partly read, so NOT-ANSWERABLE is the floor of the hole and
+# not its size. (That document is now withdrawn; the rule is not about it.) A question written
+# from a missing page is unanswerable by construction.
 # The system will correctly say "no guidance found", this file will score `wrongly_declined`,
 # and the run will read as an accuracy problem when it is a COVERAGE problem. The two are not
 # fixed by the same work, and a number that mixes them measures neither.
@@ -66,36 +81,77 @@
 # target, no sepsis bundle, no thrombolysis window anywhere in the corpus).
 
 questions:
-  # --- answerable: clean prose, verified by retrieval ---------------------------------
+  # --- withdrawn source: asthma. Was `answerable` and verified live until 2026-07-23 ------
+  #
+  # These five moved here together with the document, in the same change, deliberately: a
+  # corpus and the expectations written against it must not be updated separately, or the
+  # next run compares a new corpus to an old ground truth and reports the difference as the
+  # system changing. The provider comparison this was being prepared for would have been the
+  # first casualty.
 
   - id: asthma-beta-blockers
     text: Should people with asthma avoid beta-blockers?
     language: English
-    expect: answerable
-    source: NHLBI p204-205
+    expect: withdrawn_source
+    source: NHLBI p204-205 (withdrawn 2026-07-23)
     note: >
-      Verified live. Also the #38 case: the guideline qualifies this with "although
-      cardioselective beta-blockers may be tolerated", and a quote that stops before the
-      qualifier still passes #19.
+      Was `answerable` and verified live. NHLBI EPR-3 was withdrawn 2026-07-23 — not for
+      licence, unlike KDIGO and NICE, but for corpus focus: it was the only document in a
+      clinical domain nothing else covers, and a US guideline where German practice follows
+      AWMF/NVL, so it would have served the likely first reader poorly even intact. It was
+      also the most damaged document in the corpus (116 of 440 pages hold no chunk, 88 more
+      partly read). A decline is now the correct outcome; an ANSWER here would mean the
+      system reached into the contraception corpus for an asthma question.
+
+      It was also the #38 case — the guideline qualifies this with "although cardioselective
+      beta-blockers may be tolerated" and a quote stopping before the qualifier still passes
+      #19. That observation is parked with the document, not lost: it returns if NHLBI does.
 
   - id: asthma-beta-blockers-de
     text: Sollten Menschen mit Asthma Betablocker vermeiden?
     language: German
-    expect: answerable
-    source: NHLBI p204-205
-    note: The same question in German. e5 is multilingual; this is the cross-lingual check.
+    expect: withdrawn_source
+    source: NHLBI p204-205 (withdrawn 2026-07-23)
+    note: >
+      Was `answerable` and verified live. NHLBI EPR-3 was withdrawn 2026-07-23 — not for
+      licence, unlike KDIGO and NICE, but for corpus focus: it was the only document in a
+      clinical domain nothing else covers, and a US guideline where German practice follows
+      AWMF/NVL, so it would have served the likely first reader poorly even intact. It was
+      also the most damaged document in the corpus (116 of 440 pages hold no chunk, 88 more
+      partly read). A decline is now the correct outcome; an ANSWER here would mean the
+      system reached into the contraception corpus for an asthma question.
+
+      Kept rather than deleted so the cross-lingual check survives the withdrawal: it now
+      asserts the firewall holds in German too, which is the same property in the language
+      the first readers actually use.
 
   - id: asthma-cockroach
     text: What can be done about cockroach exposure for patients with asthma?
     language: English
-    expect: answerable
-    source: NHLBI p195
+    expect: withdrawn_source
+    source: NHLBI p195 (withdrawn 2026-07-23)
+    note: >
+      Was `answerable` and verified live. NHLBI EPR-3 was withdrawn 2026-07-23 — not for
+      licence, unlike KDIGO and NICE, but for corpus focus: it was the only document in a
+      clinical domain nothing else covers, and a US guideline where German practice follows
+      AWMF/NVL, so it would have served the likely first reader poorly even intact. It was
+      also the most damaged document in the corpus (116 of 440 pages hold no chunk, 88 more
+      partly read). A decline is now the correct outcome; an ANSWER here would mean the
+      system reached into the contraception corpus for an asthma question.
 
   - id: asthma-satisfaction
     text: What aspects of patient satisfaction should be monitored in asthma care?
     language: English
-    expect: answerable
-    source: NHLBI p87
+    expect: withdrawn_source
+    source: NHLBI p87 (withdrawn 2026-07-23)
+    note: >
+      Was `answerable` and verified live. NHLBI EPR-3 was withdrawn 2026-07-23 — not for
+      licence, unlike KDIGO and NICE, but for corpus focus: it was the only document in a
+      clinical domain nothing else covers, and a US guideline where German practice follows
+      AWMF/NVL, so it would have served the likely first reader poorly even intact. It was
+      also the most damaged document in the corpus (116 of 440 pages hold no chunk, 88 more
+      partly read). A decline is now the correct outcome; an ANSWER here would mean the
+      system reached into the contraception corpus for an asthma question.
 
   # --- withdrawn source: answerable ONLY from a document we may not index (#49) -----------
   #
@@ -163,6 +219,8 @@ questions:
   #
   # So `expect_pages` is not bookkeeping here. It is the only field that separates the answer
   # from the answer-shaped thing: both are verbatim, both cite CDC, and only the page differs.
+  # --- answerable: clean prose, verified by retrieval ---------------------------------
+
   - id: contraception-migraine-aura
     text: Which contraceptive methods are safe for women with migraine with aura?
     language: English
@@ -320,9 +378,23 @@ questions:
   - id: asthma-severity-age
     text: At what age is asthma severity classified differently in youths and adults?
     language: English
-    expect: answerable
-    source: NHLBI p9
+    expect: withdrawn_source
+    source: NHLBI p9 (withdrawn 2026-07-23)
     tags: [glyph-45, threshold]
+    note: >
+      Was `answerable` and verified live. NHLBI EPR-3 was withdrawn 2026-07-23 — not for
+      licence, unlike KDIGO and NICE, but for corpus focus: it was the only document in a
+      clinical domain nothing else covers, and a US guideline where German practice follows
+      AWMF/NVL, so it would have served the likely first reader poorly even intact. It was
+      also the most damaged document in the corpus (116 of 440 pages hold no chunk, 88 more
+      partly read). A decline is now the correct outcome; an ANSWER here would mean the
+      system reached into the contraception corpus for an asthma question.
+
+      This was the last live #45 case on the shippable corpus — its answer sits on a line
+      whose "≥" extracted as U+0001, so the model restored the symbol and #19 rejected a
+      correct answer. The mechanism is now pinned by a test with a positive control
+      (tests/test_glyph_damage.py) rather than by this question, which is why withdrawing the
+      document does not lose the finding.
 
   # --- not covered: the corpus has no answer, and saying so is CORRECT ----------------
   #

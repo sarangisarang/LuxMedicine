@@ -160,9 +160,36 @@ def load_questions(path: Path) -> list[Question]:
 
 
 async def _corpus_contains(session: AsyncSession, phrase: str) -> bool:
+    """Is this fragment in text the model could actually have been shown?
+
+    **Scoped to what retrieval can return, which it was not.** The unfiltered version asked the
+    whole `chunks` table — including withdrawn documents and superseded rows, neither of which
+    can ever reach a model. That decides `synthesis` (assembled from real fragments) against
+    `paraphrase` (reworded), and `synthesis` is what sets `is_invention`, the most serious
+    number this report produces.
+
+    Caught by the two baselines around the NHLBI withdrawal: contraception-in-ckd produced a
+    byte-identical rejected quote in both runs, from the same page, with the same counts — and
+    was diagnosed `paraphrase, invention=False` in one and `synthesis, invention=True` in the
+    other. The model had not changed. The table had: 13 chunks added and 88 superseded between
+    the runs, and a 4-gram that was absent became present. So a fabrication verdict moved
+    because of text nobody could have read.
+
+    Same predicate as retrieval — active version, not superseded, not a reference — so the
+    question it answers is the one it claims: could the model have seen these words?
+    """
     return (
         await session.execute(
-            sql_text("SELECT EXISTS(SELECT 1 FROM chunks WHERE lower(content) LIKE :p)"),
+            sql_text(
+                "SELECT EXISTS("
+                "  SELECT 1 FROM chunks c"
+                "  JOIN document_versions v ON c.document_version_id = v.id"
+                "  WHERE lower(c.content) LIKE :p"
+                "    AND v.status = 'active'"
+                "    AND c.superseded_by IS NULL"
+                "    AND NOT c.is_reference"
+                ")"
+            ),
             {"p": f"%{phrase.lower()}%"},
         )
     ).scalar_one()
