@@ -1,0 +1,649 @@
+{
+  "summary": {
+    "at": "2026-07-23T11:01:58.911910+00:00",
+    "model": "gemini-3.1-flash-lite",
+    "cache": "off",
+    "endpoint": "https://generativelanguage.googleapis.com/",
+    "counts": {
+      "answered": 10,
+      "answered_off_source": 1,
+      "answered_uncovered": 3,
+      "correctly_declined": 6,
+      "withdrawn_declined": 8,
+      "wrongly_declined": 1
+    },
+    "by_id": {
+      "answered": [
+        "asthma-beta-blockers",
+        "asthma-beta-blockers-de",
+        "asthma-cockroach",
+        "asthma-satisfaction",
+        "contraception-migraine-aura-de",
+        "contraception-cirrhosis-decompensated",
+        "contraception-valvular-complicated",
+        "contraception-postpartum",
+        "contraception-iud-timing",
+        "contraception-in-ckd"
+      ],
+      "withdrawn_declined": [
+        "ckd-podiatric",
+        "ckd-podiatric-de",
+        "ckd-pth",
+        "hf-vaccination",
+        "hf-sodium",
+        "hf-sodium-de",
+        "ckd-gfr-categories",
+        "ckd-definition-threshold"
+      ],
+      "answered_off_source": [
+        "contraception-migraine-aura"
+      ],
+      "wrongly_declined": [
+        "asthma-severity-age"
+      ],
+      "correctly_declined": [
+        "not-covered-sepsis",
+        "not-covered-stroke",
+        "not-covered-diabetes-hba1c",
+        "not-covered-pregnancy",
+        "not-covered-covid",
+        "junk-empty-ish"
+      ],
+      "answered_uncovered": [
+        "not-covered-dysplasia-pathogenesis",
+        "junk-topic-only",
+        "junk-meta"
+      ]
+    },
+    "answerable": {
+      "answered": "11/12",
+      "answered_off_source": "1/3",
+      "clean_prose_answered": "11/11",
+      "glyph_45_answered": "0/1"
+    },
+    "not_covered": {
+      "correctly_declined": "6/9"
+    },
+    "withdrawn_source": {
+      "count": 8,
+      "correctly_declined": "8/8",
+      "leaked": 0
+    },
+    "rejected_quotes": {
+      "total": 3,
+      "by_verdict": {
+        "paraphrase": 3
+      },
+      "inventions": 0
+    }
+  },
+  "outcomes": [
+    {
+      "id": "asthma-beta-blockers",
+      "expect": "answerable",
+      "tags": [],
+      "no_answer_reason": null,
+      "groups": 1,
+      "citations": 1,
+      "orgs": [
+        "NHLBI"
+      ],
+      "pages": [
+        "204"
+      ],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 1.1,
+      "expect_pages": [],
+      "error": null
+    },
+    {
+      "id": "asthma-beta-blockers-de",
+      "expect": "answerable",
+      "tags": [],
+      "no_answer_reason": null,
+      "groups": 1,
+      "citations": 2,
+      "orgs": [
+        "NHLBI"
+      ],
+      "pages": [
+        "204",
+        "365"
+      ],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 1.09,
+      "expect_pages": [],
+      "error": null
+    },
+    {
+      "id": "asthma-cockroach",
+      "expect": "answerable",
+      "tags": [],
+      "no_answer_reason": null,
+      "groups": 1,
+      "citations": 7,
+      "orgs": [
+        "NHLBI"
+      ],
+      "pages": [
+        "195",
+        "195",
+        "195",
+        "195",
+        "133",
+        "133",
+        "133"
+      ],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 1.36,
+      "expect_pages": [],
+      "error": null
+    },
+    {
+      "id": "asthma-satisfaction",
+      "expect": "answerable",
+      "tags": [],
+      "no_answer_reason": null,
+      "groups": 1,
+      "citations": 1,
+      "orgs": [
+        "NHLBI"
+      ],
+      "pages": [
+        "87"
+      ],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 0.99,
+      "expect_pages": [],
+      "error": null
+    },
+    {
+      "id": "ckd-podiatric",
+      "expect": "withdrawn_source",
+      "tags": [],
+      "no_answer_reason": "sources_do_not_answer",
+      "groups": 0,
+      "citations": 0,
+      "orgs": [],
+      "pages": [],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 0.82,
+      "expect_pages": [],
+      "error": null
+    },
+    {
+      "id": "ckd-podiatric-de",
+      "expect": "withdrawn_source",
+      "tags": [],
+      "no_answer_reason": "sources_do_not_answer",
+      "groups": 0,
+      "citations": 0,
+      "orgs": [],
+      "pages": [],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 0.95,
+      "expect_pages": [],
+      "error": null
+    },
+    {
+      "id": "ckd-pth",
+      "expect": "withdrawn_source",
+      "tags": [],
+      "no_answer_reason": "sources_do_not_answer",
+      "groups": 0,
+      "citations": 0,
+      "orgs": [],
+      "pages": [],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 0.89,
+      "expect_pages": [],
+      "error": null
+    },
+    {
+      "id": "hf-vaccination",
+      "expect": "withdrawn_source",
+      "tags": [],
+      "no_answer_reason": "sources_do_not_answer",
+      "groups": 0,
+      "citations": 0,
+      "orgs": [],
+      "pages": [],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 0.94,
+      "expect_pages": [],
+      "error": null
+    },
+    {
+      "id": "hf-sodium",
+      "expect": "withdrawn_source",
+      "tags": [],
+      "no_answer_reason": "sources_do_not_answer",
+      "groups": 0,
+      "citations": 0,
+      "orgs": [],
+      "pages": [],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 0.82,
+      "expect_pages": [],
+      "error": null
+    },
+    {
+      "id": "hf-sodium-de",
+      "expect": "withdrawn_source",
+      "tags": [],
+      "no_answer_reason": "sources_do_not_answer",
+      "groups": 0,
+      "citations": 0,
+      "orgs": [],
+      "pages": [],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 0.89,
+      "expect_pages": [],
+      "error": null
+    },
+    {
+      "id": "contraception-migraine-aura",
+      "expect": "answerable",
+      "tags": [
+        "table-48"
+      ],
+      "no_answer_reason": null,
+      "groups": 1,
+      "citations": 2,
+      "orgs": [
+        "CDC"
+      ],
+      "pages": [
+        "124",
+        "124"
+      ],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 0.99,
+      "expect_pages": [
+        69,
+        123
+      ],
+      "error": null
+    },
+    {
+      "id": "contraception-migraine-aura-de",
+      "expect": "answerable",
+      "tags": [
+        "table-48"
+      ],
+      "no_answer_reason": null,
+      "groups": 2,
+      "citations": 2,
+      "orgs": [
+        "CDC"
+      ],
+      "pages": [
+        "124",
+        "69"
+      ],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 1.14,
+      "expect_pages": [
+        69,
+        123
+      ],
+      "error": null
+    },
+    {
+      "id": "contraception-cirrhosis-decompensated",
+      "expect": "answerable",
+      "tags": [
+        "table-48",
+        "mislabelled-parent"
+      ],
+      "no_answer_reason": null,
+      "groups": 1,
+      "citations": 2,
+      "orgs": [
+        "CDC"
+      ],
+      "pages": [
+        "126",
+        "22"
+      ],
+      "rejected": 1,
+      "diagnoses": [
+        {
+          "verdict": "paraphrase",
+          "is_invention": false,
+          "detail": "100% of its words are in the cited passage, reworded",
+          "quote": "b. Decompensated (impaired liver function) 4 Evidence: No direct evidence was identified on CHC use among persons with\ndecompensated cirrhosis (Supplementary Ap"
+        }
+      ],
+      "elapsed_s": 1.8,
+      "expect_pages": [
+        22,
+        126
+      ],
+      "error": null
+    },
+    {
+      "id": "contraception-valvular-complicated",
+      "expect": "answerable",
+      "tags": [
+        "table-48",
+        "mislabelled-parent"
+      ],
+      "no_answer_reason": null,
+      "groups": 1,
+      "citations": 1,
+      "orgs": [
+        "CDC"
+      ],
+      "pages": [
+        "20"
+      ],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 0.96,
+      "expect_pages": [],
+      "error": null
+    },
+    {
+      "id": "contraception-postpartum",
+      "expect": "answerable",
+      "tags": [],
+      "no_answer_reason": null,
+      "groups": 1,
+      "citations": 1,
+      "orgs": [
+        "CDC"
+      ],
+      "pages": [
+        "31"
+      ],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 1.04,
+      "expect_pages": [],
+      "error": null
+    },
+    {
+      "id": "contraception-iud-timing",
+      "expect": "answerable",
+      "tags": [],
+      "no_answer_reason": null,
+      "groups": 1,
+      "citations": 7,
+      "orgs": [
+        "CDC"
+      ],
+      "pages": [
+        "39",
+        "40",
+        "40",
+        "40",
+        "39",
+        "39",
+        "39"
+      ],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 1.26,
+      "expect_pages": [],
+      "error": null
+    },
+    {
+      "id": "contraception-in-ckd",
+      "expect": "answerable",
+      "tags": [
+        "cross-specialty"
+      ],
+      "no_answer_reason": null,
+      "groups": 1,
+      "citations": 1,
+      "orgs": [
+        "CDC"
+      ],
+      "pages": [
+        "31"
+      ],
+      "rejected": 1,
+      "diagnoses": [
+        {
+          "verdict": "paraphrase",
+          "is_invention": false,
+          "detail": "100% of its words are in the cited passage, reworded",
+          "quote": "Clarification (DRSP POP): Persons with known DRSP POP with known hyperkalemia should not use DRSP POPs because of the risk for worsening hyperkalemia (category "
+        }
+      ],
+      "elapsed_s": 1.38,
+      "expect_pages": [],
+      "error": null
+    },
+    {
+      "id": "ckd-gfr-categories",
+      "expect": "withdrawn_source",
+      "tags": [
+        "glyph-45",
+        "table"
+      ],
+      "no_answer_reason": "sources_do_not_answer",
+      "groups": 0,
+      "citations": 0,
+      "orgs": [],
+      "pages": [],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 0.91,
+      "expect_pages": [],
+      "error": null
+    },
+    {
+      "id": "ckd-definition-threshold",
+      "expect": "withdrawn_source",
+      "tags": [
+        "glyph-45",
+        "threshold"
+      ],
+      "no_answer_reason": "sources_do_not_answer",
+      "groups": 0,
+      "citations": 0,
+      "orgs": [],
+      "pages": [],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 0.87,
+      "expect_pages": [],
+      "error": null
+    },
+    {
+      "id": "asthma-severity-age",
+      "expect": "answerable",
+      "tags": [
+        "glyph-45",
+        "threshold"
+      ],
+      "no_answer_reason": "verification_failed",
+      "groups": 0,
+      "citations": 0,
+      "orgs": [],
+      "pages": [],
+      "rejected": 1,
+      "diagnoses": [
+        {
+          "verdict": "paraphrase",
+          "is_invention": false,
+          "detail": "100% of its words are in the cited passage, reworded",
+          "quote": "FIGURE 3\u20134c. CLASSIFYING ASTHMA SEVERITY IN YOUTHS  12 YEARS OF AGE\nAND ADULTS"
+        }
+      ],
+      "elapsed_s": 1.45,
+      "expect_pages": [],
+      "error": null
+    },
+    {
+      "id": "not-covered-sepsis",
+      "expect": "not_covered",
+      "tags": [],
+      "no_answer_reason": "sources_do_not_answer",
+      "groups": 0,
+      "citations": 0,
+      "orgs": [],
+      "pages": [],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 0.8,
+      "expect_pages": [],
+      "error": null
+    },
+    {
+      "id": "not-covered-stroke",
+      "expect": "not_covered",
+      "tags": [],
+      "no_answer_reason": "sources_do_not_answer",
+      "groups": 0,
+      "citations": 0,
+      "orgs": [],
+      "pages": [],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 0.95,
+      "expect_pages": [],
+      "error": null
+    },
+    {
+      "id": "not-covered-diabetes-hba1c",
+      "expect": "not_covered",
+      "tags": [],
+      "no_answer_reason": "sources_do_not_answer",
+      "groups": 0,
+      "citations": 0,
+      "orgs": [],
+      "pages": [],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 0.86,
+      "expect_pages": [],
+      "error": null
+    },
+    {
+      "id": "not-covered-pregnancy",
+      "expect": "not_covered",
+      "tags": [],
+      "no_answer_reason": "sources_do_not_answer",
+      "groups": 0,
+      "citations": 0,
+      "orgs": [],
+      "pages": [],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 0.86,
+      "expect_pages": [],
+      "error": null
+    },
+    {
+      "id": "not-covered-covid",
+      "expect": "not_covered",
+      "tags": [],
+      "no_answer_reason": "sources_do_not_answer",
+      "groups": 0,
+      "citations": 0,
+      "orgs": [],
+      "pages": [],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 0.94,
+      "expect_pages": [],
+      "error": null
+    },
+    {
+      "id": "not-covered-dysplasia-pathogenesis",
+      "expect": "not_covered",
+      "tags": [
+        "adjacent-vocabulary"
+      ],
+      "no_answer_reason": null,
+      "groups": 1,
+      "citations": 1,
+      "orgs": [
+        "CDC"
+      ],
+      "pages": [
+        "81"
+      ],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 1.02,
+      "expect_pages": [],
+      "error": null
+    },
+    {
+      "id": "junk-topic-only",
+      "expect": "not_covered",
+      "tags": [],
+      "no_answer_reason": null,
+      "groups": 2,
+      "citations": 2,
+      "orgs": [
+        "CDC",
+        "NHLBI"
+      ],
+      "pages": [
+        "52",
+        "414"
+      ],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 1.1,
+      "expect_pages": [],
+      "error": null
+    },
+    {
+      "id": "junk-meta",
+      "expect": "not_covered",
+      "tags": [],
+      "no_answer_reason": null,
+      "groups": 1,
+      "citations": 6,
+      "orgs": [
+        "NHLBI"
+      ],
+      "pages": [
+        "151",
+        "151",
+        "426",
+        "426",
+        "151",
+        "151"
+      ],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 1.37,
+      "expect_pages": [],
+      "error": null
+    },
+    {
+      "id": "junk-empty-ish",
+      "expect": "not_covered",
+      "tags": [],
+      "no_answer_reason": "sources_do_not_answer",
+      "groups": 0,
+      "citations": 0,
+      "orgs": [],
+      "pages": [],
+      "rejected": 0,
+      "diagnoses": [],
+      "elapsed_s": 0.68,
+      "expect_pages": [],
+      "error": null
+    }
+  ]
+}
