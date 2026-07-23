@@ -100,6 +100,10 @@ type Strings = {
   rejected: (n: number) => string;
   superseded: (label: string | null) => string;
   unreadable: (pages: string) => string;
+  // Against a single quote whose OWN page lost text. Distinct from `unreadable`, which lists
+  // a document's damaged pages as a set: a page lost entirely yields no quote, so that note
+  // describes an absence. This describes a presence — a partly-read page still answering.
+  damagedPageQuote: string;
   combined: {
     heading: string;
     // The load-bearing label: this is NOT a summary. It is the same verbatim quotes gathered,
@@ -186,6 +190,8 @@ export const STRINGS: Record<UiLang, Strings> = {
       label ? `This edition has been superseded by ${label}.` : "This edition has been superseded.",
     unreadable: (pages) =>
       `Pages ${pages} of this document could not be read and are not reflected above.`,
+    damagedPageQuote:
+      "Part of this page could not be read, so a qualifier printed beside this passage may be missing from it. Open the source page before relying on it.",
     combined: {
       heading: "Full text — the guideline's own words, gathered",
       note: "The same verbatim quotes above, collected here to read in one place. Not a summary and not joined into a single statement — each is a separate span, kept with its page.",
@@ -274,6 +280,8 @@ export const STRINGS: Record<UiLang, Strings> = {
         : "Diese Ausgabe wurde ersetzt.",
     unreadable: (pages) =>
       `Die Seiten ${pages} dieses Dokuments konnten nicht gelesen werden und sind oben nicht berücksichtigt.`,
+    damagedPageQuote:
+      "Ein Teil dieser Seite konnte nicht gelesen werden; eine einschränkende Angabe neben dieser Textstelle könnte daher fehlen. Öffnen Sie die Quellseite, bevor Sie sich darauf stützen.",
     // TODO(review): clinician-facing medical German — have a native speaker check before deploy.
     combined: {
       heading: "Gesamter Text — die Worte der Leitlinie, gesammelt",
@@ -357,6 +365,8 @@ export const STRINGS: Record<UiLang, Strings> = {
       label ? `ეს გამოცემა შეცვლილია ${label}-ით.` : "ეს გამოცემა შეცვლილია.",
     unreadable: (pages) =>
       `ამ დოკუმენტის გვერდები ${pages} ვერ წაიკითხა და ზემოთ არ არის ასახული.`,
+    damagedPageQuote:
+      "ამ გვერდის ნაწილი ვერ წაიკითხა — ამ ნაწყვეტის გვერდით დაბეჭდილი დამაზუსტებელი პირობა შესაძლოა აკლდეს. დაეყრდნობამდე გახსენი წყაროს გვერდი.",
     combined: {
       heading: "სრული ტექსტი — გაიდლაინის სიტყვები, თავმოყრილი",
       note: "ზემოთ მოცემული იგივე ვერბატიმ ციტატები, ერთ ადგილას შეკრებილი წასაკითხად. არა შეჯამება და არა ერთ დებულებად გაერთიანებული — თითოეული ცალკე ნაწყვეტია, თავის გვერდთან ერთად.",

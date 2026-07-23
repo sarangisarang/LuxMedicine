@@ -30,7 +30,19 @@ export function SourceGroupCard({
 
       <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
         {group.citations.map((c, i) => (
-          <CitationItem key={i} citation={c} onOpenSource={onOpenSource} />
+          <CitationItem
+            key={i}
+            citation={c}
+            onOpenSource={onOpenSource}
+            // THIS quote's own page lost content, which the footer's document-level list
+            // cannot say. The danger is not the page that vanished — that one produces a
+            // decline, and `incomplete_sources` now explains it. It is the page read only in
+            // part: its chunks are in the index and answer, while the sentence that qualified
+            // them may be in the half that was dropped. On NHLBI that is 73 pages —
+            // partly-damaged rather than lost — and a quote from one of them looks complete
+            // and is not. #48's shape exactly, so it is marked on the quote, not under it.
+            fromDamagedPage={(group.unreadable_pages ?? []).includes(c.page_start)}
+          />
         ))}
       </ul>
 
