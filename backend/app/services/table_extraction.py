@@ -163,9 +163,22 @@ def _looks_truncated(label: str) -> bool:
     return stripped.count("(") != stripped.count(")") or bool(_DANGLING_TAIL.search(stripped))
 
 
-# How many wrapped lines a label may absorb. Three covers every case measured; the cap exists
-# so a label that never looks complete cannot swallow the rest of the table.
-_MAX_CONTINUATION_ROWS = 3
+# How many wrapped lines a label may absorb. The cap exists so a label that never reads
+# complete cannot swallow the rest of the table.
+#
+# Five, measured rather than guessed. At three, eleven labels stayed cut; raising it resolves
+# four more and then plateaus (11 → 9 → 7 → 7 at caps 3/4/5/6). Every line the extra budget
+# absorbs was read against the source and is a genuine continuation of the same phrase —
+# "…previous VTE, thrombophilia, immobility," + "transfusion at delivery, peripartum", and
+# "…or history of subacute bacterial" + "endocarditis)", which closes its own bracket. No
+# sibling row and no prose is pulled in, because the loop still stops at any row carrying
+# category cells and the moment the label reads complete.
+#
+# A crude "did a label swallow another row's text" metric reported 26-31 hits at every cap
+# INCLUDING the unchanged one, which is how it was identified as noise: condition names are
+# routinely substrings of each other ("Migraine" inside "Migraine with aura"). Reading the six
+# distinct diffs was what actually settled it.
+_MAX_CONTINUATION_ROWS = 5
 
 
 def _complete_label(rows: list[list[dict]], index: int, columns: list[MethodColumn]) -> str:
