@@ -25,6 +25,19 @@
 #   CDC US SPR 2024   — contraception   316 chunks,  80pp
 #   NICE NG106 2018   — heart failure    57 chunks,  39pp
 #
+# **BEFORE ADDING QUESTIONS: check `python -m app.cli.coverage` first.**
+#
+# Writing questions by reading a PDF measures the PDF, not the index — and those differ.
+# NHLBI EPR-3 is 440 pages of which 324 are indexed: 116 pages hold no live chunk at all, and a
+# further 73 are partly damaged (189 recorded unreadable, so NOT-ANSWERABLE is the floor of the
+# hole, not its size). A question written from any of those is unanswerable by construction.
+# The system will correctly say "no guidance found", this file will score `wrongly_declined`,
+# and the run will read as an accuracy problem when it is a COVERAGE problem. The two are not
+# fixed by the same work, and a number that mixes them measures neither.
+#
+# So: write from pages the coverage report shows as indexed, or — if a question about a missing
+# page is deliberate — say so in its note, so nobody later reads the failure as the model's.
+#
 # **`expect_pages` is now coupled to ingestion, and only a warning guards it.** Chunks can be
 # superseded (`chunks.superseded_by`) — retired from retrieval, kept in the table — and a row
 # re-read by a fixed extractor can land on a different page than the one it replaced. So a page
