@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import contextlib
 
-import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.api.invites import get_identity_provider

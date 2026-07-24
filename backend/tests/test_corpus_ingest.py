@@ -14,12 +14,11 @@ from io import BytesIO
 import pytest
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.core.vocabulary import IssuingOrg, LicenseStatus
 from app.models.document import Document, DocumentVersion, VersionStatus
-from app.models.chunk import Chunk
 from app.services import storage
 from app.services.corpus_ingest import ingest_document, ingest_pdf
 

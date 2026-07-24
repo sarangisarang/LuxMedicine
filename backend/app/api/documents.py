@@ -2,7 +2,6 @@
 
 import uuid
 from datetime import date
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse

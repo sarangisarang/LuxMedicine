@@ -5,7 +5,6 @@ what matters here is what it does NOT do: it is not part of an answer, it never 
 the original when it fails, and a spent quota is not an internal error.
 """
 
-import uuid
 
 import pytest
 from httpx import ASGITransport, AsyncClient

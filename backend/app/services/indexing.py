@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from pathlib import Path
 
 from sqlalchemy import func, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession

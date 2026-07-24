@@ -14,7 +14,6 @@ session, so a version another clinic owns is a 404". That is asserted two ways h
 
 import uuid
 
-import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession

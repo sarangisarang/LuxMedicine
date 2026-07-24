@@ -61,7 +61,10 @@ dev = [
     # Test-only: builds real multi-page PDFs with known text, so extraction is tested
     # against a genuine PDF rather than against a fixture that flatters the parser.
     "reportlab>=4.2",
-    "ruff>=0.8",
+    # Pinned, not `>=`: CI installs fresh each run, so an unpinned ruff silently adopts
+    # every new release and its new lint rules — which is how a file nobody touched
+    # (alembic/env.py) started failing lint on an unrelated commit. Bump deliberately.
+    "ruff==0.15.21",
 ]
 
 # Without this, setuptools sees both `app/` and `alembic/` at the root and refuses
