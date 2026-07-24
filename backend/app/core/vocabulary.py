@@ -41,6 +41,26 @@ class Sector(StrEnum):
     LEGAL = "legal"
 
 
+class LicenseStatus(StrEnum):
+    """Whether a document may lawfully be indexed and served — the upload gate.
+
+    The self-service upload endpoint is the exact door 20 copyrighted commercial documents came
+    through on 2026-07-24; a free-text "provenance" note did not stop them. This is the structured
+    gate instead: only an AFFIRMED licence lets an upload go ACTIVE. Anything else — `UNKNOWN`, or a
+    value nobody set — is ingested but QUARANTINED (`VersionStatus.WITHDRAWN`): present, reversible,
+    and never retrievable, until a human confirms the licence and flips it active. Fail-safe by
+    construction rather than by a reviewer remembering to check.
+    """
+
+    PUBLIC_DOMAIN = "public_domain"
+    LICENSED = "licensed"
+    UNKNOWN = "unknown"
+
+    @property
+    def is_affirmed(self) -> bool:
+        return self in (LicenseStatus.PUBLIC_DOMAIN, LicenseStatus.LICENSED)
+
+
 class IssuingOrg(StrEnum):
     # Cardiology
     ESC = "ESC"  # European Society of Cardiology

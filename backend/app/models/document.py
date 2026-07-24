@@ -18,7 +18,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.vocabulary import Sector
+from app.core.vocabulary import LicenseStatus, Sector
 from app.db.base import Base
 
 
@@ -174,6 +174,18 @@ class DocumentVersion(Base):
 
     # Where the original PDF lives. Content-addressed, so it derives from file_hash.
     storage_uri: Mapped[str] = mapped_column(Text)
+
+    # Whether this edition may lawfully be indexed and served — the upload gate (see LicenseStatus).
+    # NOT NULL, server_default "unknown": a version whose licence nobody affirmed must default to the
+    # quarantined reading, never to "fine to serve". Rows that predate the gate are honestly unknown;
+    # their retrievability stays decided by `status`, which the gate does not rewrite retroactively.
+    license_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default=LicenseStatus.UNKNOWN.value
+    )
+
+    # Where the uploader said these bytes came from and why they may be indexed. Recorded for the
+    # audit of that decision, never parsed. NULL for rows ingested before the gate existed.
+    provenance_source: Mapped[str | None] = mapped_column(Text)
 
     # Set when a newer edition replaces this one. Drives the staleness warning:
     # "you are reading the 2021 guideline; a 2023 edition exists".

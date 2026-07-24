@@ -42,8 +42,10 @@ from app.schemas.answer import AnswerPayload
 from app.services.answering import Extractor, assemble, render_passages
 from app.services.audit import append_audit_entry, make_query
 from app.services.embedding import Embedder
+from app.services.query_translation import translate_for_retrieval
 from app.services.retrieval import SearchHit, hybrid_search
 from app.services.table_guard import guard_table_rows
+from app.services.translation import Translator
 from app.services.validation import RejectedCitation, validate_answer
 
 DEFAULT_LIMIT = 10
@@ -83,6 +85,7 @@ async def answer_query(
     clinic_id: str,
     embedder: Embedder,
     extractor: Extractor,
+    translator: Translator | None = None,
     sector: Sector = Sector.MEDICAL,
     limit: int = DEFAULT_LIMIT,
     include_archived: bool = False,
@@ -102,9 +105,16 @@ async def answer_query(
     is visible immediately. The dangerous direction — a statute quoted to a clinician —
     is not reachable from any value this parameter can take.
     """
+    # Retrieve in the corpus's own language. A Georgian query does not reach the decisive row
+    # otherwise — measured, see query_translation — because the lexical half is English-only and
+    # the ka->en vector pair loses precision. Only the search is translated: the extractor and the
+    # audit below keep the original `question`, and a translation outage falls back to it.
+    retrieval_query, _translated_from = translate_for_retrieval(
+        question, sector=sector, language=language, translator=translator
+    )
     hits = await hybrid_search(
         session,
-        question,
+        retrieval_query,
         embedder,
         sector=sector,
         limit=limit,

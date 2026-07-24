@@ -21,6 +21,9 @@ dependencies = [
     # MIT, as is its pdfminer.six engine. Chosen over PyMuPDF, which is AGPL-3.0 and
     # would put a copyleft obligation on a hosted clinical service.
     "pdfplumber>=0.11.4",
+    # Splitting oversized uploads into page-bounded parts (corpus upload). pdfplumber reads text
+    # but does not write PDFs; pypdf does. Imported at app startup by services/pdf_split.
+    "pypdf>=4.0",
     # Identity (#30). `[crypto]` pulls in `cryptography` for RS256 — without the
     # extra, pyjwt silently supports only HMAC and every RS256 token fails.
     "pyjwt[crypto]>=2.10",

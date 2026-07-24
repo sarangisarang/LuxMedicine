@@ -15,7 +15,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.vocabulary import IssuingOrg
+from app.core.vocabulary import IssuingOrg, LicenseStatus
 from app.models.document import Document, DocumentVersion
 
 
@@ -58,6 +58,12 @@ class RegistrationRequest:
     # the endpoint: "did you mean this to be public?" is not a question to answer by
     # omission.
     clinic_id: str | None = None
+
+    # The upload gate. Defaults to UNKNOWN so a caller who does not affirm a licence gets the
+    # quarantined reading, never "fine to serve" (see LicenseStatus). `provenance_source` records
+    # what was affirmed and why.
+    license_status: LicenseStatus = LicenseStatus.UNKNOWN
+    provenance_source: str | None = None
 
 
 async def _find_by_hash(session: AsyncSession, file_hash: str) -> DocumentVersion | None:
@@ -136,6 +142,8 @@ async def register_version(session: AsyncSession, req: RegistrationRequest) -> D
         published_at=req.published_at,
         file_hash=req.file_hash,
         storage_uri=req.storage_uri,
+        license_status=req.license_status.value,
+        provenance_source=req.provenance_source,
     )
     session.add(version)
 

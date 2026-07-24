@@ -104,3 +104,85 @@ export async function postRegister(body: RegisterRequest): Promise<RegisterRespo
   }
   return (await response.json()) as RegisterResponse;
 }
+
+// Ingest types: hand-written for now because api-types.ts is regenerated from the backend's
+// openapi.json (npm run gen:types) and this endpoint ships after. Replace with
+// components["schemas"]["BatchStatus"] etc. once the schema is regenerated — the same
+// no-hand-written-types discipline as everything above.
+export type BatchFileStatus = {
+  filename: string;
+  parts: number;
+  done_parts: number;
+  version_ids: string[];
+  error: string | null;
+};
+
+export type BatchStatus = {
+  job_id: string;
+  sector: string;
+  status: "queued" | "running" | "done" | "failed";
+  phase: string;
+  percent: number;
+  files: BatchFileStatus[];
+  error: string | null;
+};
+
+export type BatchAccepted = { job_id: string };
+
+/**
+ * POST /ingest/batches — upload a folder of guideline PDFs for the corpus. Multipart, so the body
+ * is a FormData (files + issuing_org + version_label + provenance); the Content-Type header is left
+ * unset on purpose so fetch writes the multipart boundary itself. Admin-only, enforced by the
+ * backend. Returns a job id to poll — indexing runs in the background.
+ */
+export async function postIngestBatch(form: FormData, token: string): Promise<BatchAccepted> {
+  const response = await fetch(`${API_URL}/ingest/batches`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new ApiError(response.status, await response.text());
+  }
+  return (await response.json()) as BatchAccepted;
+}
+
+/** GET /ingest/batches/{id} — poll an upload's phase and 0-100% progress. */
+export async function getIngestStatus(jobId: string, token: string): Promise<BatchStatus> {
+  const response = await fetch(`${API_URL}/ingest/batches/${jobId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new ApiError(response.status, await response.text());
+  }
+  return (await response.json()) as BatchStatus;
+}
+
+// Hand-written until gen:types picks up the new /documents list schema — same TODO as the ingest types.
+export type DocumentSummary = {
+  title: string;
+  issuing_org: string;
+  region: string | null;
+  version_label: string;
+  published_at: string | null;
+  status: string;
+};
+
+export type DocumentList = { documents: DocumentSummary[] };
+
+/** GET /documents?sector= — the active (searchable) corpus for one sector, for the sidebar. */
+export async function listDocuments(sector: string, token: string): Promise<DocumentList> {
+  const response = await fetch(`${API_URL}/documents?sector=${encodeURIComponent(sector)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new ApiError(response.status, await response.text());
+  }
+  return (await response.json()) as DocumentList;
+}

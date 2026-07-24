@@ -4,6 +4,8 @@ import dynamic from "next/dynamic";
 import { useState } from "react";
 
 import { AnswerView } from "@/components/AnswerView";
+import { CorpusList } from "@/components/CorpusList";
+import { CorpusUpload } from "@/components/CorpusUpload";
 import { LanguageProvider } from "@/components/LanguageContext";
 import type { SourceTarget } from "@/components/PdfViewer";
 import type { QueryResponse } from "@/lib/api";
@@ -80,6 +82,8 @@ export default function Home() {
           so a clinician reads our quote and the original page at once — verification without
           holding the text in short-term memory. */}
       <div className="flex min-h-screen">
+        {/* Left sidebar: the searchable corpus for the selected sector, switching with it. */}
+        <CorpusList sector={sector} lang={lang} />
         <main className="flex-1 px-6 py-12">
           <div className="mx-auto max-w-3xl">
             <div className="flex items-baseline justify-between">
@@ -157,6 +161,10 @@ export default function Home() {
                 </button>
               </div>
             </form>
+
+            {/* Self-service corpus upload (admin-only; the backend enforces it and rejects a
+                non-admin with 403). A collapsed section so it does not crowd the query screen. */}
+            <CorpusUpload lang={lang} />
 
             {error && (
               <p className="mt-8 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">

@@ -22,6 +22,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.translation import get_translator
 from app.core.auth import Clinician, current_clinician
 from app.core.vocabulary import Sector
 from app.db.session import get_tenant_session
@@ -29,6 +30,7 @@ from app.schemas.answer import AnswerPayload
 from app.services.answering import Extractor
 from app.services.embedding import Embedder
 from app.services.pipeline import DEFAULT_LIMIT, answer_query
+from app.services.translation import Translator
 
 router = APIRouter(prefix="/queries", tags=["queries"])
 
@@ -87,6 +89,7 @@ async def post_query(
     session: AsyncSession = Depends(get_tenant_session),
     embedder: Embedder = Depends(get_embedder),
     extractor: Extractor = Depends(get_extractor),
+    translator: Translator = Depends(get_translator),
 ) -> QueryResponse:
     """Ask the corpus. Recorded against the token's subject.
 
@@ -104,6 +107,7 @@ async def post_query(
         clinic_id=clinician.clinic_id,
         embedder=embedder,
         extractor=extractor,
+        translator=translator,
         sector=request.sector,
         limit=request.limit,
         include_archived=request.include_archived,

@@ -11,9 +11,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.vocabulary import IssuingOrg
+from app.core.vocabulary import IssuingOrg, Sector
 from app.db.session import get_session, get_tenant_session
-from app.models.document import DocumentVersion, VersionStatus
+from app.models.document import Document, DocumentVersion, VersionStatus
 from app.services import storage
 from app.services.ingestion import (
     DuplicateFileError,
@@ -200,4 +200,68 @@ async def get_version_pdf(
         # Inline, not attachment: the point is to view the page in place, not download it.
         content_disposition_type="inline",
         filename=f"{version_id}.pdf",
+    )
+
+
+class DocumentSummary(BaseModel):
+    title: str
+    issuing_org: str
+    region: str | None
+    version_label: str
+    published_at: date | None
+    # active | archived | withdrawn | pending. Carried so the sidebar shows the WHOLE corpus a
+    # caller may see — including what is withdrawn/quarantined — while marking what is not searchable,
+    # rather than hiding it and looking like the document was deleted.
+    status: str
+
+
+class DocumentList(BaseModel):
+    documents: list[DocumentSummary]
+
+
+@router.get("", summary="List the documents in a sector", response_model=DocumentList)
+async def list_documents(
+    sector: Sector,
+    session: AsyncSession = Depends(get_tenant_session),
+) -> DocumentList:
+    """Every document in one sector the caller may see, with its status — for a browsable sidebar.
+
+    All statuses, not only active: a withdrawn or quarantined document still exists (its chunks and
+    PDF are in place), and hiding it makes it look deleted. The list carries `status` so the UI can
+    grey out what is not retrievable instead. Row-level security still scopes this to the caller's
+    clinic, and it switches with the sector exactly as retrieval does. Active first, so the
+    searchable corpus reads at the top.
+    """
+    rows = (
+        await session.execute(
+            select(
+                Document.title,
+                Document.issuing_org,
+                Document.region,
+                DocumentVersion.version_label,
+                DocumentVersion.published_at,
+                DocumentVersion.status,
+            )
+            .join(DocumentVersion, DocumentVersion.document_id == Document.id)
+            .where(Document.sector == sector.value)
+            .order_by(
+                Document.issuing_org,
+                # active before everything else, so the searchable corpus is at the top of each org.
+                (DocumentVersion.status != VersionStatus.ACTIVE),
+                Document.title,
+            )
+        )
+    ).all()
+    return DocumentList(
+        documents=[
+            DocumentSummary(
+                title=title,
+                issuing_org=org,
+                region=region,
+                version_label=version_label,
+                published_at=published_at,
+                status=status.value if hasattr(status, "value") else str(status),
+            )
+            for title, org, region, version_label, published_at, status in rows
+        ]
     )
