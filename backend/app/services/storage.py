@@ -13,7 +13,7 @@ import hashlib
 import shutil
 import tempfile
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from fastapi import UploadFile
 
@@ -113,16 +113,28 @@ def resolve(storage_uri: str, *, root: Path) -> Path:
     not a licence to keep writing absolute paths.
     """
     candidate = Path(storage_uri)
-    if candidate.is_absolute():
+    # Absoluteness is OS-flavoured, and that is the whole trap this function exists for: a value
+    # written on a Windows laptop (`C:\Users\...`) is NOT absolute to a Linux container's PosixPath,
+    # so `candidate.is_absolute()` alone would let it fall through and be joined onto the root
+    # verbatim — reproducing the very cross-machine 500 we are trying to tolerate. Recognise a
+    # foreign absolute path under either flavour, regardless of the OS doing the reading.
+    looks_absolute = (
+        candidate.is_absolute()
+        or PureWindowsPath(storage_uri).is_absolute()
+        or PurePosixPath(storage_uri).is_absolute()
+    )
+    if looks_absolute:
         if candidate.is_file():
             return candidate
         # Written on another machine. Everything after the root's name is still the layout.
-        parts = candidate.as_posix().replace("\\", "/").split("/")
+        # Split on both separators by hand — `candidate.as_posix()` on Linux leaves the Windows
+        # backslashes untouched, so a `\`-only path would otherwise be one indivisible segment.
+        parts = storage_uri.replace("\\", "/").split("/")
         if root.name in parts:
             tail = parts[parts.index(root.name) + 1 :]
             if tail:
                 return root.joinpath(*tail)
-        return root / candidate.name
+        return root / parts[-1]
     return root / candidate
 
 

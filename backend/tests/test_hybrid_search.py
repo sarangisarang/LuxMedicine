@@ -134,8 +134,15 @@ async def ace_corpus(session, embedder) -> dict[str, uuid.UUID]:
             }
         )
 
+    # flush, not commit: this suite is additive by design (conftest: no truncate between
+    # tests), and hybrid_search runs on this same session, so a flush is visible to it and
+    # rolled back when the session closes. Committing instead left five ACE chunks behind
+    # per invocation; after a few, the confounder's accumulated copies filled the vector
+    # candidate depth, the right drug fell out of it, and its lexical-only score tied the
+    # confounder's vector-only one — a tie the fusion breaks by physical row order, which
+    # differs between Postgres versions. That is why this passed on pg16 and failed on pg17.
     await session.execute(insert(Chunk), rows)
-    await session.commit()
+    await session.flush()
     return chunk_ids
 
 
