@@ -38,6 +38,42 @@ compose() {
   docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" --project-directory "$PROJECT_DIR" "$@"
 }
 
+# Sanity check the project directory BEFORE trusting any hash, because a wrong one is the trap
+# that cost the 40 minutes: a `build:` context that does not resolve here means compose hashes
+# the build config differently, and every build service reports a drift that is pure artifact.
+# Catch it directly rather than leave the next person to rediscover it from red output.
+context_artifact=0
+while read -r ctx; do
+  [ -z "$ctx" ] && continue
+  case "$ctx" in
+    /*) resolved="$ctx" ;;
+     *) resolved="$PROJECT_DIR/$ctx" ;;
+  esac
+  if [ ! -d "$resolved" ]; then
+    echo "WARNING: build context '$ctx' does not exist under $PROJECT_DIR"
+    context_artifact=1
+  fi
+done < <(compose config --format json 2>/dev/null \
+  | python3 -c 'import sys,json;[print(s.get("build",{}).get("context","")) for s in json.load(sys.stdin).get("services",{}).values() if isinstance(s.get("build"),dict)]' 2>/dev/null)
+
+if [ "$context_artifact" -ne 0 ]; then
+  echo "  -> run this from the file's own project directory; build-service hashes are unreliable here."
+  echo
+fi
+
+# On drift, the hash alone says a service changed but not WHICH field. explain-drift.py diffs
+# the `command` and `environment` fields — where the two faults this guard exists for lived
+# (Keycloak's --optimized; the dropped GEMINI_API_KEY) — between the file and the container.
+# A separate file, not an inline heredoc: `python3 -` would take its PROGRAM from stdin, the
+# same stdin the compose JSON needs, so the two collide. Piping JSON to a real script is the
+# clean shape.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+explain_drift() {
+  local service="$1" cid="$2"
+  compose config --format json 2>/dev/null \
+    | python3 "$SCRIPT_DIR/explain-drift.py" "$service" "$cid"
+}
+
 drift=0
 checked=0
 
@@ -60,6 +96,7 @@ while read -r service file_hash; do
 
   if [ "$run_hash" != "$file_hash" ]; then
     echo "DRIFT: $service — file=${file_hash:0:16} running=${run_hash:0:16} (recreate it)"
+    explain_drift "$service" "$cid" || true
     drift=1
   else
     echo "ok: $service (${file_hash:0:16})"
