@@ -310,6 +310,17 @@ export default function GaebPage() {
                     </td>
                     <td className="py-1 pr-2">
                       <input value={p.short_text} onChange={(e) => update(i, "short_text", e.target.value)} className="w-full min-w-[14rem] rounded border border-neutral-200 bg-transparent px-1 py-0.5 dark:border-neutral-800" />
+                      {/* The Langtext — the wrapped lines carrying the DIN references and the
+                          technical qualifiers. Shown, not hidden: a bidder has to read them, and
+                          they travel into the .x84 as the position's detail text. */}
+                      {p.long_text && (
+                        <textarea
+                          value={p.long_text}
+                          onChange={(e) => update(i, "long_text", e.target.value)}
+                          rows={Math.min(6, p.long_text.split("\n").length + 1)}
+                          className="mt-1 w-full min-w-[14rem] rounded border border-neutral-200 bg-transparent px-1 py-0.5 text-xs text-neutral-500 dark:border-neutral-800"
+                        />
+                      )}
                     </td>
                     <td className="py-1 pr-2">
                       <input value={p.quantity} onChange={(e) => update(i, "quantity", e.target.value)} className="w-16 rounded border border-neutral-200 bg-transparent px-1 py-0.5 text-right dark:border-neutral-800" />

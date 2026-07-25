@@ -177,6 +177,91 @@ def test_a_table_with_no_header_row_at_all_is_read_from_its_content():
     assert boq.positions[1].quantity == Decimal("2.5")
 
 
+def test_a_total_column_is_never_read_as_the_unit_price():
+    """The money bug: an LV carries both EP (rate) and GP (line total). Exporting the total as the
+    unit price multiplies the whole bid by the quantity. 10 × 125,50 = 1255,00 — the .x84 must carry
+    125,50."""
+    csv = (
+        "Pos;Kurztext;Menge;Einheit;EP;GP\n"
+        "01.0010;Beton C25/30;10;m3;125,50;1.255,00\n"
+        "01.0020;Bewehrungsstahl;2,5;t;900,00;2.250,00\n"
+    ).encode("utf-8")
+    boq = read_csv(csv, project_name="Halle")
+    assert [str(p.unit_price) for p in boq.positions] == ["125.50", "900.00"]
+
+
+def test_a_total_column_labelled_only_preis_gesamt_is_not_the_unit_price():
+    """'Preis gesamt' starts with 'preis' — the prefix match would have claimed it as the rate."""
+    csv = (
+        "Pos;Bezeichnung;Menge;ME;Einheitspreis;Preis gesamt\n"
+        "1;Mauerwerk;12;m2;45,00;540,00\n"
+    ).encode("utf-8")
+    boq = read_csv(csv, project_name="x")
+    assert boq.positions[0].unit_price == Decimal("45.00")
+
+
+def test_unnamed_columns_are_told_apart_by_the_arithmetic():
+    """No usable headers: quantity × unit price = total is the evidence that says which number is
+    the rate and which is the sum."""
+    csv = (
+        "01.0010;Beton C25/30 liefern;10;m3;125,50;1255,00\n"
+        "01.0020;Bewehrungsstahl verlegen;2,5;t;900,00;2250,00\n"
+    ).encode("utf-8")
+    boq = read_csv(csv, project_name="x")
+    assert [str(p.unit_price) for p in boq.positions] == ["125.50", "900.00"]
+    assert [str(p.quantity) for p in boq.positions] == ["10", "2.5"]
+
+
+def test_a_position_number_column_is_not_mistaken_for_the_quantity():
+    """'01.0010' parses as a number. Read as the quantity it shifts every later column by one — the
+    other way a price ends up in the wrong field."""
+    csv = (
+        "01.0010;Beton C25/30 liefern und einbauen;10;m3;125,50\n"
+        "01.0020;Bewehrungsstahl verlegen;2,5;t;900,00\n"
+    ).encode("utf-8")
+    boq = read_csv(csv, project_name="x")
+    assert [str(p.quantity) for p in boq.positions] == ["10", "2.5"]
+    assert [str(p.unit_price) for p in boq.positions] == ["125.50", "900.00"]
+    assert boq.positions[0].oz == "01.0010"
+
+
+def test_continuation_lines_keep_the_din_references():
+    """An LV wraps its Langtext over several lines, and that is where the DIN norms sit. Those rows
+    have no quantity, so they were being dropped — throwing away the very text a bidder must read."""
+    csv = (
+        "Pos;Kurztext;Menge;Einheit;EP\n"
+        "01.0010;Beton C25/30 liefern und einbauen;10;m3;125,50\n"
+        ";Ausführung nach DIN 1045-2 und DIN EN 206;;;\n"
+        ";Expositionsklasse XC4, Konsistenz F3;;;\n"
+        "01.0020;Bewehrungsstahl B500B verlegen;2,5;t;900,00\n"
+        ";Betonstahl nach DIN 488;;;\n"
+    ).encode("utf-8")
+    boq = read_csv(csv, project_name="Halle")
+
+    assert len(boq.positions) == 2
+    first, second = boq.positions
+    assert "DIN 1045-2" in (first.long_text or "")
+    assert "DIN EN 206" in (first.long_text or "")
+    assert "XC4" in (first.long_text or "")
+    assert "DIN 488" in (second.long_text or "")
+    # The continuation of the first position must not leak into the second.
+    assert "DIN 1045-2" not in (second.long_text or "")
+
+
+def test_a_heading_row_with_its_own_oz_is_not_folded_into_the_position_above():
+    """A section heading carries an OZ; a wrapped Langtext line does not. That is what tells them
+    apart — otherwise a chapter title would be appended to the previous position's text."""
+    csv = (
+        "Pos;Kurztext;Menge;Einheit;EP\n"
+        "01.0010;Beton liefern;10;m3;125,50\n"
+        "02;Titel: Maurerarbeiten;;;\n"
+        "02.0010;Mauerwerk herstellen;20;m2;45,00\n"
+    ).encode("utf-8")
+    boq = read_csv(csv, project_name="x")
+    assert len(boq.positions) == 2
+    assert "Maurerarbeiten" not in (boq.positions[0].long_text or "")
+
+
 def test_a_missing_unit_column_is_tolerated():
     """A .x84 position can carry an empty unit; a description and a quantity are the real minimum."""
     csv = b"Pos;Bezeichnung;Menge;EP\n1;Malerarbeiten;5;20,00\n"

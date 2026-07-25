@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 import xml.etree.ElementTree as ET
+from dataclasses import replace
 from decimal import Decimal, InvalidOperation
 
 import docx
@@ -93,7 +95,18 @@ _HEADERS: dict[str, tuple[str, ...]] = {
     ),
     "long_text": ("langtext", "detailtext", "spezifikation", "long text", "zusatztext"),
     "section": ("titel", "los", "gruppe", "gewerk", "abschnitt", "section", "kapitel"),
+    # Recognised so it can be kept OUT of unit_price. A .x84 carries the unit price and derives the
+    # line total itself; exporting a total as if it were a unit price multiplies the bid by the
+    # quantity, so this column is identified precisely in order to be ignored.
+    "total": (
+        "gesamtpreis", "gesamtbetrag", "gesamtsumme", "gesamt", "gp", "g-preis", "summe",
+        "betrag", "endpreis", "total", "line total", "positionssumme",
+    ),
 }
+
+# Words that mean "this is a sum, not a rate". A label containing one of these can never be the unit
+# price, however it otherwise reads — "Preis gesamt" starts with "preis" and is emphatically a total.
+_TOTAL_WORDS = ("gesamt", "summe", "brutto", "total", "betrag", "endpreis")
 
 # The quantity units a German LV actually uses. Used only by the content-based fallback: a column
 # whose cells are mostly these IS the unit column, whatever its header says (or if it has none).
@@ -106,18 +119,29 @@ _UNIT_TOKENS = frozenset({
 
 def _map_columns(header: list[str]) -> dict[str, int]:
     """Match each header cell to a canonical field. First column wins a field, so a stray later
-    'Position' does not steal it from the real one."""
+    'Position' does not steal it from the real one.
+
+    A cell is matched to the field whose LONGEST recognised label it starts with, not to whichever
+    field happens to be checked first: "Gesamtpreis" must land on `total` (11 characters of evidence)
+    rather than on `unit_price` via a short prefix, because reading a line total as a unit price
+    multiplies the whole bid by the quantity.
+    """
     mapping: dict[str, int] = {}
     for idx, cell in enumerate(header):
         label = (cell or "").strip().lower()
         if not label:
             continue
+        best_field, best_len = None, 0
         for field, names in _HEADERS.items():
             if field in mapping:
                 continue
-            if any(label == n or label.startswith(n) for n in names):
-                mapping[field] = idx
-                break
+            if field == "unit_price" and any(word in label for word in _TOTAL_WORDS):
+                continue  # a sum, never a rate — see _TOTAL_WORDS
+            for name in names:
+                if (label == name or label.startswith(name)) and len(name) > best_len:
+                    best_field, best_len = field, len(name)
+        if best_field is not None:
+            mapping[best_field] = idx
     return mapping
 
 
@@ -137,6 +161,38 @@ def _maybe_decimal(raw: str | None) -> Decimal | None:
 
 def _is_numeric(value: str) -> bool:
     return _maybe_decimal(value) is not None
+
+
+# "01.0010", "1.1", "1.2.30", "1-2" — an Ordnungszahl, not a measurement. It parses as a number,
+# which is the trap: read as a quantity it shifts every following column by one.
+_POSITION_NUMBER = re.compile(r"^\d+(?:[.\-/]\d+)+$")
+
+
+def _looks_like_position_numbers(cells: list[str]) -> bool:
+    filled = [c for c in cells if c]
+    if not filled:
+        return False
+    return sum(1 for c in filled if _POSITION_NUMBER.match(c)) / len(filled) >= 0.6
+
+
+def _multiplies_out(rows: list[list[str]], qty: int, unit_price: int, total: int) -> bool:
+    """True when quantity × unit_price equals the total column on most rows where all three are
+    present. This is what tells a unit price from a line total when both are just numbers — the
+    arithmetic is the evidence, rather than a guess from column order."""
+    checked = 0
+    agreed = 0
+    for row in rows:
+        values = []
+        for idx in (qty, unit_price, total):
+            values.append(_maybe_decimal(row[idx]) if idx < len(row) else None)
+        q, u, t = values
+        if q is None or u is None or t is None or q == 0 or u == 0:
+            continue
+        checked += 1
+        # A cent of slack: the file's own total is rounded, and so is ours.
+        if abs(q * u - t) <= Decimal("0.02"):
+            agreed += 1
+    return checked >= 1 and agreed / checked >= 0.8
 
 
 def _infer_columns_by_content(rows: list[list[str]]) -> dict[str, int]:
@@ -159,13 +215,17 @@ def _infer_columns_by_content(rows: list[list[str]]) -> dict[str, int]:
     for idx in range(width):
         cells = [c for c in column(idx) if c]
         if not cells:
-            stats.append({"idx": idx, "filled": 0, "numeric": 0.0, "unit": 0.0, "avg_len": 0.0})
+            stats.append(
+                {"idx": idx, "filled": 0, "numeric": 0.0, "unit": 0.0, "avg_len": 0.0,
+                 "position_like": False}
+            )
             continue
         numeric = sum(1 for c in cells if _is_numeric(c)) / len(cells)
         unitish = sum(1 for c in cells if c.lower().rstrip(".") in _UNIT_TOKENS) / len(cells)
         avg_len = sum(len(c) for c in cells) / len(cells)
         stats.append(
-            {"idx": idx, "filled": len(cells), "numeric": numeric, "unit": unitish, "avg_len": avg_len}
+            {"idx": idx, "filled": len(cells), "numeric": numeric, "unit": unitish,
+             "avg_len": avg_len, "position_like": _looks_like_position_numbers(cells)}
         )
 
     mapping: dict[str, int] = {}
@@ -175,9 +235,13 @@ def _infer_columns_by_content(rows: list[list[str]]) -> dict[str, int]:
     if units:
         mapping["unit"] = max(units, key=lambda s: (s["unit"], s["filled"]))["idx"]
 
-    # 2. Quantities are numeric. If we found the unit column, the quantity is the numeric column
-    #    immediately to its left (the near-universal LV layout); otherwise the first numeric column.
-    numeric_cols = [s for s in stats if s["numeric"] >= 0.6 and s["filled"] > 0]
+    # 2. Quantities are numeric — but a position number ("01.0010", "1.1") also parses as a number,
+    #    and mistaking that column for the quantity shifts EVERY later column by one, which is how a
+    #    unit price silently becomes something else. So position-shaped columns are excluded here and
+    #    claimed as the OZ instead.
+    numeric_cols = [
+        s for s in stats if s["numeric"] >= 0.6 and s["filled"] > 0 and not s["position_like"]
+    ]
     if numeric_cols:
         if "unit" in mapping:
             left = [s for s in numeric_cols if s["idx"] < mapping["unit"]]
@@ -185,11 +249,27 @@ def _infer_columns_by_content(rows: list[list[str]]) -> dict[str, int]:
         else:
             mapping["quantity"] = numeric_cols[0]["idx"]
 
-    # 3. The unit price is the next numeric column after the quantity (a total may follow it; the
-    #    first one after is the unit price, which is what a .x84 carries).
+    # 3. The unit price. A priced LV usually carries BOTH a unit price and a line total, and taking
+    #    the wrong one is a money error, so this is decided by arithmetic rather than by position:
+    #    the unit price is the column u for which quantity × u equals some other column t (the total).
+    #    Only if no pair adds up does it fall back to "the first number after the quantity".
     after = [s for s in numeric_cols if s["idx"] > mapping.get("quantity", -1)]
     if after:
-        mapping["unit_price"] = after[0]["idx"]
+        qty_idx = mapping.get("quantity")
+        chosen = None
+        if qty_idx is not None:
+            for candidate in after:
+                for other in after:
+                    if other["idx"] == candidate["idx"]:
+                        continue
+                    if _multiplies_out(rows, qty_idx, candidate["idx"], other["idx"]):
+                        chosen = candidate["idx"]
+                        mapping["_total"] = other["idx"]  # remembered only to keep it out of the way
+                        break
+                if chosen is not None:
+                    break
+        mapping["unit_price"] = chosen if chosen is not None else after[0]["idx"]
+        mapping.pop("_total", None)
 
     # 4. The description is the wordiest non-numeric column that is not already claimed.
     claimed = set(mapping.values())
@@ -273,32 +353,50 @@ def positions_from_rows(
         return row[idx]
 
     positions: list[Position] = []
+    continuations: list[list[str]] = []  # extra description lines belonging to positions[-1]
     for n, row in enumerate(rows, start=1):
         desc = (cell(row, "short_text") or "").strip()
         qty_raw = cell(row, "quantity")
         if not desc and not (qty_raw and qty_raw.strip()):
             continue  # a blank or separator row
         quantity = _maybe_decimal(qty_raw)
+        oz = (cell(row, "oz") or "").strip()
+
         if quantity is None:
-            continue  # a heading row with text but no quantity — not a priceable position
-        oz = (cell(row, "oz") or "").strip() or f"{n * 10:04d}"
+            # No quantity: this row is not a position of its own. It is either a heading (which
+            # carries its own OZ) or — the case that was silently losing text — a CONTINUATION of the
+            # position above it. A German LV wraps the Langtext over several lines, and that is where
+            # the DIN references and the technical qualifiers live. Dropping them threw away exactly
+            # the part a bidder must read.
+            if desc and not oz and positions:
+                continuations[-1].append(desc)
+            continue
+
         unit = (cell(row, "unit") or "").strip()
-        long_text = (cell(row, "long_text") or "").strip() or None
+        long_text = (cell(row, "long_text") or "").strip()
         section = (cell(row, "section") or "").strip()
         positions.append(
             Position(
-                oz=oz,
+                oz=oz or f"{n * 10:04d}",
                 short_text=desc,
                 quantity=quantity,
                 unit=unit,
                 unit_price=_maybe_decimal(cell(row, "unit_price")),
-                long_text=long_text,
+                long_text=long_text or None,
                 section=section,
             )
         )
+        continuations.append([])
+
     if not positions:
         raise NoPositionsError("no priceable positions were found in the rows")
-    return positions
+
+    # Fold the gathered continuation lines into each position's long text, keeping the order they
+    # were printed in. The short text stays as the file wrote it, so the table still reads as the LV.
+    return [
+        replace(p, long_text="\n".join(filter(None, [p.long_text, *extra])) or None)
+        for p, extra in zip(positions, continuations, strict=True)
+    ]
 
 
 def read_csv(data: bytes, *, project_name: str) -> BillOfQuantities:
