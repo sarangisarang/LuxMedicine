@@ -1008,6 +1008,34 @@ def _looks_like_a_heading_row(row: list[str]) -> bool:
     return len(_map_columns(cells)) >= 3 and not any(_is_numeric(c) for c in cells if c)
 
 
+# The document's closing total ("Gesamt, Netto: …"), as distinct from a cost group's total.
+_TOTAL_LABELS = ("gesamt", "summe", "endsumme", "gesamtsumme")
+
+
+def _tidy_document_total(row: list[str]) -> list[str]:
+    """Clean a closing-total row: keep the label and its figure, drop the page furniture beside them.
+
+    A footer is printed across the page, so the extractor puts whatever else is down there — the
+    office name, the city — into the first column, where it reads as a position number. The row is
+    worth keeping (it is the document's own net total) but only the part that belongs to it.
+    """
+    cells = [(c or "").strip() for c in row]
+    if any(kg_level(c) is not None or _POSITION_NUMBER.match(c) for c in cells):
+        return cells  # a cost group's total, not the document's — leave it alone
+    text = " ".join(cells).lower()
+    if not any(label in text for label in _TOTAL_LABELS):
+        return cells
+    # Blank any leading cell that is neither the label nor a figure.
+    tidied = list(cells)
+    for i, cell in enumerate(tidied):
+        if not cell or _is_numeric(cell):
+            continue
+        if any(label in cell.lower() for label in _TOTAL_LABELS):
+            break
+        tidied[i] = ""
+    return tidied
+
+
 def clean_grid(grid: list[list[str]]) -> list[list[str]]:
     """The extracted table with the page's own furniture removed and glued amounts separated.
 
@@ -1034,11 +1062,22 @@ def clean_grid(grid: list[list[str]]) -> list[list[str]]:
             continue
         if _looks_like_a_heading_row(row):
             # The first one names the columns and must survive; a PDF reprints it on every page, and
-            # those repeats are page furniture like any other.
+            # those repeats are page furniture like any other. A heading is never tidied as a total —
+            # "Gesamt EUR" is the name of a column, not a sum.
             signature = "|".join((c or "").strip().lower() for c in row)
             if signature in seen_headings:
                 continue
             seen_headings.add(signature)
+        else:
+            row = _tidy_document_total(row)
+            # A closing total is printed once per page too; keep the first and drop the repeats.
+            if any(label in " ".join(row).lower() for label in _TOTAL_LABELS) and not any(
+                kg_level(c) is not None or _POSITION_NUMBER.match(c) for c in row
+            ):
+                signature = "total:" + "|".join(c.strip().lower() for c in row)
+                if signature in seen_headings:
+                    continue
+                seen_headings.add(signature)
         if len(row) < common:
             widened: list[str] = []
             for cell in row:

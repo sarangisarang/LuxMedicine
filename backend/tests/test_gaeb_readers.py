@@ -446,6 +446,29 @@ def test_the_gross_is_removed_even_when_it_shares_a_cell_with_the_net():
     ]
 
 
+def test_the_closing_total_keeps_its_label_and_figure_and_nothing_else():
+    """The document's closing total is printed across the page footer, so the extractor sweeps up
+    whatever else is down there — the office name, the city — into the first column, where it reads
+    as a position number. And the footer repeats on every page. Keep the label and the figure, once."""
+    from app.services.gaeb.readers import clean_grid
+
+    grid = [
+        ["KG / OZ", "DIN 276", "Menge/Einheit", "Teilbetrag / EP", "Gesamt EUR"],
+        ["590", "Sonstige Maßnahmen", "", "", "443.648,50"],
+        ["KMZ, Köln", "Gesamt, Netto:", "", "", "229.622,15"],
+        ["KMZ, Köln", "Gesamt, Netto:", "", "", "229.622,15"],
+    ]
+    cleaned = clean_grid(grid)
+
+    # The column headings survive untouched — "Gesamt EUR" names a column, it is not a sum.
+    assert cleaned[0] == ["KG / OZ", "DIN 276", "Menge/Einheit", "Teilbetrag / EP", "Gesamt EUR"]
+    # A cost group's own total is left exactly as it stands.
+    assert ["590", "Sonstige Maßnahmen", "", "", "443.648,50"] in cleaned
+    # The closing total appears once, without the office name.
+    assert cleaned.count(["", "Gesamt, Netto:", "", "", "229.622,15"]) == 1
+    assert not any("KMZ" in " ".join(row) for row in cleaned)
+
+
 def test_two_amounts_extracted_into_one_cell_are_separated():
     """"229.622,15273.250" is the net total with the gross printed beside it, run together by the
     extractor. The cents of the first end where the digits of the second begin."""
