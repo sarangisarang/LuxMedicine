@@ -123,8 +123,21 @@ const UPLOAD_STRINGS: Partial<Record<UiLang, UploadStrings>> & { en: UploadStrin
   hu: { section: "Irányelvek hozzáadása (admin)", hint: "Válasszon egy PDF-mappát. A 120 oldalnál hosszabb fájlok részekre bomlanak, majd tárolódnak, kinyerődnek és indexelődnek.", folder: "Mappa választása", chosen: (n) => `${n} PDF kiválasztva`, org: "Kibocsátó szervezet", versionLabel: "Verziócímke", license: "Licenc", licensePublicDomain: "Közkincs", licenseLicensed: "Licencelt", licenseUnknown: "Ismeretlen / bizonytalan", quarantineHint: "Megerősített licenc nélkül a feltöltések karanténba kerülnek — indexelve, de nem kereshetők — a licenc megerősítéséig.", source: "Forrás", sourcePlaceholder: "Honnan származnak és miért indexelhetők.", submit: "Feltöltés és indexelés", working: "Indexelés…", needFiles: "Válasszon legalább egy PDF-et tartalmazó mappát.", needSource: "Forrás megadása kötelező.", serverError: "A szerver nem érhető el. Próbálja újra.", done: "Kész", failed: "Sikertelen" },
 };
 
+// The native <input type="file"> button ("Choose files"/"No file chosen") is drawn by the browser in
+// the OS/browser language — it cannot be styled or translated. So the input is hidden and a real
+// button drives it; this is the "nothing chosen yet" text beside that button, in the UI language.
+const NONE_SELECTED: Record<UiLang, string> = {
+  en: "No folder chosen", de: "Kein Ordner gewählt", ka: "ფოლდერი არ არის არჩეული",
+  ru: "Папка не выбрана", uk: "Теку не вибрано", fr: "Aucun dossier choisi",
+  es: "Ninguna carpeta elegida", it: "Nessuna cartella scelta", pl: "Nie wybrano folderu",
+  tr: "Klasör seçilmedi", ar: "لم يتم اختيار مجلد", pt: "Nenhuma pasta escolhida",
+  nl: "Geen map gekozen", ro: "Niciun folder ales", el: "Δεν επιλέχθηκε φάκελος",
+  cs: "Není vybrána žádná složka", hu: "Nincs mappa kiválasztva",
+};
+
 export function CorpusUpload({ lang }: { lang: UiLang }) {
   const t = UPLOAD_STRINGS[lang] ?? UPLOAD_STRINGS.en;
+  const noneSelected = NONE_SELECTED[lang] ?? NONE_SELECTED.en;
   const inputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [chosen, setChosen] = useState(0);
@@ -230,14 +243,27 @@ export function CorpusUpload({ lang }: { lang: UiLang }) {
 
           <form onSubmit={submit} className="mt-4 space-y-3">
             <div>
+              {/* The input is visually hidden, not removed: it still holds the chosen files and stays
+                  keyboard-reachable. The button beside it is ours, so its label is translated. */}
               <input
                 ref={attachFolderInput}
                 type="file"
                 multiple
                 onChange={(e) => setChosen(pdfsFrom(e.target.files).length)}
-                className="block w-full cursor-pointer text-sm file:mr-3 file:cursor-pointer file:rounded-md file:border file:border-neutral-300 file:bg-neutral-100 file:px-3 file:py-1.5 file:text-sm dark:file:border-neutral-700 dark:file:bg-neutral-800"
+                className="sr-only"
               />
-              {chosen > 0 && <p className="mt-1 text-xs text-neutral-500">{t.chosen(chosen)}</p>}
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => inputRef.current?.click()}
+                  className="rounded-md border border-neutral-300 bg-neutral-100 px-3 py-1.5 text-sm dark:border-neutral-700 dark:bg-neutral-800"
+                >
+                  {t.folder}
+                </button>
+                <span className="text-xs text-neutral-500">
+                  {chosen > 0 ? t.chosen(chosen) : noneSelected}
+                </span>
+              </div>
             </div>
 
             <div className="flex flex-wrap gap-3">
