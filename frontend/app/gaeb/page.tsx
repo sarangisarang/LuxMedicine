@@ -28,7 +28,6 @@ type GaebStrings = {
   colPrice: string;
   colTeilbetrag: string;
   colTotal: string;
-  mismatchWarning: (n: number) => string;
   addRow: string;
   removeRow: string;
   noSumNote: string;
@@ -61,8 +60,6 @@ const STRINGS: Partial<Record<UiLang, GaebStrings>> & { en: GaebStrings } = {
     colPrice: "Unit price",
     colTeilbetrag: "Teilbetrag / EP",
     colTotal: "Total EUR",
-    mismatchWarning: (n) =>
-      `${n} row${n === 1 ? "" : "s"} do not match the total printed in the source file. A column was probably read wrongly — check the quantity and unit price on the rows marked in red before exporting.`,
     addRow: "+ Add position",
     removeRow: "Remove",
     noSumNote: "All values are taken from the source file unchanged. Nothing is calculated, summed or adjusted here.",
@@ -93,8 +90,6 @@ const STRINGS: Partial<Record<UiLang, GaebStrings>> & { en: GaebStrings } = {
     colPrice: "Einheitspreis",
     colTeilbetrag: "Teilbetrag / EP",
     colTotal: "Gesamt EUR",
-    mismatchWarning: (n) =>
-      `${n} Position${n === 1 ? "" : "en"} stimmen nicht mit dem in der Datei ausgewiesenen Gesamtbetrag überein. Vermutlich wurde eine Spalte falsch gelesen — prüfen Sie Menge und Einheitspreis der rot markierten Zeilen vor dem Export.`,
     addRow: "+ Position hinzufügen",
     removeRow: "Entfernen",
     noSumNote: "Sämtliche Werte werden unverändert aus der Quelldatei übernommen. Es werden hier keine Berechnungen, Summierungen oder Mengenanpassungen durchgeführt.",
@@ -125,8 +120,6 @@ const STRINGS: Partial<Record<UiLang, GaebStrings>> & { en: GaebStrings } = {
     colPrice: "ერთ. ფასი",
     colTeilbetrag: "Teilbetrag / EP",
     colTotal: "ჯამი EUR",
-    mismatchWarning: (n) =>
-      `${n} მწკრივი არ ემთხვევა ფაილში მითითებულ ჯამს. სავარაუდოდ სვეტი არასწორად წაიკითხა — ექსპორტამდე შეამოწმე წითლად მონიშნული მწკრივების რაოდენობა და ერთეულის ფასი.`,
     addRow: "+ პოზიციის დამატება",
     removeRow: "წაშლა",
     noSumNote: "ყველა მნიშვნელობა უცვლელად არის აღებული წყარო-ფაილიდან. აქ არაფერი ითვლება, ჯამდება ან სწორდება.",
@@ -193,18 +186,6 @@ function rowsFromGrid(grid: string[][], roles: Role[], startAt: number): GaebEnt
     });
   });
   return out;
-}
-
-function toNumber(raw: string | null): number {
-  if (!raw) return 0;
-  // Lenient parse for the on-screen estimate only; the backend re-parses authoritatively.
-  const s = raw.replace(/\s|€|EUR/g, "");
-  const normalised =
-    s.includes(",") && s.lastIndexOf(",") > s.lastIndexOf(".")
-      ? s.replace(/\./g, "").replace(",", ".")
-      : s.replace(/,/g, "");
-  const n = Number(normalised);
-  return Number.isFinite(n) ? n : 0;
 }
 
 export default function GaebPage() {
@@ -320,16 +301,6 @@ export default function GaebPage() {
     }
   }
 
-  // Quantity × unit price is never displayed or exported — the file's own figures are. It is
-  // computed here for one purpose: if it disagrees with the total the file printed, a column was
-  // read wrongly, and the row is marked so a person looks at it.
-  function mismatched(r: GaebEntry): boolean {
-    if (r.kind !== "position" || !r.gesamt || !r.teilbetrag_ep) return false;
-    return (
-      Math.abs(toNumber(r.menge_einheit) * toNumber(r.teilbetrag_ep) - toNumber(r.gesamt)) > 0.02
-    );
-  }
-  const mismatches = (rows ?? []).filter(mismatched).length;
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-8">
@@ -449,12 +420,6 @@ export default function GaebPage() {
             </details>
           )}
 
-          {mismatches > 0 && (
-            <p className="mb-3 rounded-md bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-950 dark:text-red-300">
-              {t.mismatchWarning(mismatches)}
-            </p>
-          )}
-
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-sm">
               <thead>
@@ -524,7 +489,7 @@ export default function GaebPage() {
                           className="w-28 rounded border border-transparent bg-transparent px-1 py-0.5 text-right hover:border-neutral-200 dark:hover:border-neutral-800"
                         />
                       </td>
-                      <td className={`py-1 pr-2 text-right ${mismatched(r) ? "rounded bg-red-50 dark:bg-red-950" : ""}`}>
+                      <td className="py-1 pr-2 text-right">
                         <input
                           value={r.gesamt}
                           onChange={(e) => update(i, "gesamt", e.target.value)}
