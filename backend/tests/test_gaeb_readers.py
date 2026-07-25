@@ -133,6 +133,66 @@ def test_read_gaeb_rejects_non_gaeb_xml():
         read_gaeb(b"<html><body>not gaeb</body></html>")
 
 
+def test_unrecognised_headers_fall_back_to_reading_the_data():
+    """The real-world failure: an LV whose columns are labelled in a way the list does not know.
+    The data still says which column is which — units are units, numbers are numbers."""
+    csv = (
+        "Kennung;Was zu tun ist;Umf.;Einh;Satz\n"
+        "01.0010;Beton C25/30 liefern und einbauen;10;m3;125,50\n"
+        "01.0020;Bewehrungsstahl verlegen;2,5;t;900,00\n"
+    ).encode("utf-8")
+    boq = read_csv(csv, project_name="Halle")
+    assert len(boq.positions) == 2
+    assert boq.positions[0].short_text.startswith("Beton")
+    assert boq.positions[0].quantity == Decimal("10")
+    assert boq.positions[0].unit == "m3"
+    assert boq.positions[0].unit_price == Decimal("125.50")
+
+
+def test_unrecognised_headers_with_only_one_position():
+    """The case that failed in production while the two-row test above passed: with a single
+    position, the unnamed header row's own text drags every column below the numeric threshold. The
+    inference has to try again without that first row."""
+    csv = (
+        "Kennung;Was zu tun ist;Umf.;Einh;Satz\n"
+        "01.0010;Beton liefern und einbauen;10;m3;125,50\n"
+    ).encode("utf-8")
+    boq = read_csv(csv, project_name="Halle")
+    assert len(boq.positions) == 1
+    assert boq.positions[0].quantity == Decimal("10")
+    assert boq.positions[0].unit == "m3"
+    assert boq.positions[0].unit_price == Decimal("125.50")
+
+
+def test_a_table_with_no_header_row_at_all_is_read_from_its_content():
+    """Word and PDF LVs frequently print no header. Every row is a position; the columns are read
+    from what they contain."""
+    csv = (
+        "01.0010;Beton C25/30 liefern und einbauen;10;m3;125,50\n"
+        "01.0020;Bewehrungsstahl verlegen;2,5;t;900,00\n"
+    ).encode("utf-8")
+    boq = read_csv(csv, project_name="Halle")
+    assert len(boq.positions) == 2
+    assert boq.positions[1].unit == "t"
+    assert boq.positions[1].quantity == Decimal("2.5")
+
+
+def test_a_missing_unit_column_is_tolerated():
+    """A .x84 position can carry an empty unit; a description and a quantity are the real minimum."""
+    csv = b"Pos;Bezeichnung;Menge;EP\n1;Malerarbeiten;5;20,00\n"
+    boq = read_csv(csv, project_name="x")
+    assert len(boq.positions) == 1
+    assert boq.positions[0].quantity == Decimal("5")
+
+
+def test_failure_says_what_it_actually_read():
+    """A blind 'could not find a column' teaches nothing. The message must echo the rows it saw."""
+    with pytest.raises(NoPositionsError) as excinfo:
+        read_csv(b"Alpha;Beta\nnur Text;auch Text\n", project_name="x")
+    message = str(excinfo.value)
+    assert "Alpha" in message or "nur Text" in message
+
+
 def _docx(header: list[str], rows: list[list[str]]) -> bytes:
     import docx
 

@@ -68,16 +68,40 @@ def parse_decimal(raw: str | None) -> Decimal | None:
 
 
 # Canonical field -> the header labels that mean it (lower-cased, German first). A column matches if
-# its header equals or starts with one of these — enough for the common exports without a mapping UI.
+# its header equals or starts with one of these. Real LVs label these columns a dozen ways, so the
+# list is deliberately long — and when none of it matches, `_infer_columns_by_content` takes over.
 _HEADERS: dict[str, tuple[str, ...]] = {
-    "oz": ("oz", "ordnungszahl", "positionsnummer", "position", "pos", "nummer", "nr", "item"),
-    "short_text": ("kurztext", "bezeichnung", "beschreibung", "leistung", "text", "description", "title"),
-    "quantity": ("menge", "mengenansatz", "anzahl", "qty", "quantity"),
-    "unit": ("einheit", "mengeneinheit", "me", "unit", "qu"),
-    "unit_price": ("einheitspreis", "einzelpreis", "ep", "up", "preis", "unitprice", "unit price"),
-    "long_text": ("langtext", "detailtext", "spezifikation", "long text"),
-    "section": ("titel", "los", "gruppe", "gewerk", "abschnitt", "section"),
+    "oz": (
+        "oz", "o.z", "ordnungszahl", "positionsnummer", "positions-nr", "pos.-nr", "pos-nr",
+        "pos.nr", "position", "pos", "nummer", "nr", "lfd", "item", "no.", "no",
+    ),
+    "short_text": (
+        "kurztext", "bezeichnung", "beschreibung", "leistungsbeschreibung", "leistung",
+        "leistungstext", "positionstext", "artikel", "benennung", "text", "description",
+        "title", "gegenstand",
+    ),
+    "quantity": (
+        "menge", "mengenansatz", "vordersatz", "anzahl", "stück", "stueck", "qty", "quantity",
+        "masse", "umfang",
+    ),
+    "unit": (
+        "einheit", "mengeneinheit", "mengen-einheit", "me", "m.e", "eh", "unit", "qu", "einh",
+    ),
+    "unit_price": (
+        "einheitspreis", "einheits-preis", "einzelpreis", "e-preis", "ep", "up", "preis/einheit",
+        "preis", "unitprice", "unit price", "netto", "angebotspreis",
+    ),
+    "long_text": ("langtext", "detailtext", "spezifikation", "long text", "zusatztext"),
+    "section": ("titel", "los", "gruppe", "gewerk", "abschnitt", "section", "kapitel"),
 }
+
+# The quantity units a German LV actually uses. Used only by the content-based fallback: a column
+# whose cells are mostly these IS the unit column, whatever its header says (or if it has none).
+_UNIT_TOKENS = frozenset({
+    "m", "m2", "m²", "m3", "m³", "qm", "cbm", "lfm", "lfdm", "mm", "cm", "km",
+    "st", "stk", "stck", "stück", "stueck", "psch", "pausch", "pa", "kg", "to", "t", "g",
+    "h", "std", "stunde", "stunden", "l", "ltr", "liter", "st.", "we", "ea", "pcs", "set",
+})
 
 
 def _map_columns(header: list[str]) -> dict[str, int]:
@@ -97,15 +121,149 @@ def _map_columns(header: list[str]) -> dict[str, int]:
     return mapping
 
 
-def positions_from_rows(header: list[str], rows: list[list[str]]) -> list[Position]:
-    """Turn a header + data rows into positions. Requires at least a description, quantity and unit
-    to be identifiable; the position number is generated if the file has none, and the price may be
-    blank (the human fills it before export)."""
-    cols = _map_columns(header)
-    for required in ("short_text", "quantity", "unit"):
+def _maybe_decimal(raw: str | None) -> Decimal | None:
+    """`parse_decimal`, but a value that is not a number reads as absent rather than as an error.
+
+    Right for reading a FILE: a grid contains header cells, section titles, notes and totals mixed in
+    with the positions, and "this cell is not a number" is how we recognise a row that is not a
+    position — not a reason to reject the whole document. Kept separate from `parse_decimal`, which
+    stays strict for values a person typed into the verify table, where a typo must be reported.
+    """
+    try:
+        return parse_decimal(raw)
+    except UnreadableFileError:
+        return None
+
+
+def _is_numeric(value: str) -> bool:
+    return _maybe_decimal(value) is not None
+
+
+def _infer_columns_by_content(rows: list[list[str]]) -> dict[str, int]:
+    """Work out which column is which by looking at the DATA, for the files whose headers we do not
+    recognise (or that have none at all — plenty of PDF and Word LVs print no header row).
+
+    The signals are the ones a person uses at a glance: the unit column is the one full of "m2"/"St"/
+    "psch"; quantities are the numbers next to it; the price is the other number column, to its right;
+    the description is the column with the long prose. Only ever a fallback — an explicit header wins,
+    and whatever this infers still lands in the human-verify table before anything is exported.
+    """
+    if not rows:
+        return {}
+    width = max(len(r) for r in rows)
+
+    def column(idx: int) -> list[str]:
+        return [(r[idx].strip() if idx < len(r) else "") for r in rows]
+
+    stats = []
+    for idx in range(width):
+        cells = [c for c in column(idx) if c]
+        if not cells:
+            stats.append({"idx": idx, "filled": 0, "numeric": 0.0, "unit": 0.0, "avg_len": 0.0})
+            continue
+        numeric = sum(1 for c in cells if _is_numeric(c)) / len(cells)
+        unitish = sum(1 for c in cells if c.lower().rstrip(".") in _UNIT_TOKENS) / len(cells)
+        avg_len = sum(len(c) for c in cells) / len(cells)
+        stats.append(
+            {"idx": idx, "filled": len(cells), "numeric": numeric, "unit": unitish, "avg_len": avg_len}
+        )
+
+    mapping: dict[str, int] = {}
+
+    # 1. The unit column is unmistakable: mostly tokens from the unit vocabulary.
+    units = [s for s in stats if s["unit"] >= 0.5 and s["filled"] > 0]
+    if units:
+        mapping["unit"] = max(units, key=lambda s: (s["unit"], s["filled"]))["idx"]
+
+    # 2. Quantities are numeric. If we found the unit column, the quantity is the numeric column
+    #    immediately to its left (the near-universal LV layout); otherwise the first numeric column.
+    numeric_cols = [s for s in stats if s["numeric"] >= 0.6 and s["filled"] > 0]
+    if numeric_cols:
+        if "unit" in mapping:
+            left = [s for s in numeric_cols if s["idx"] < mapping["unit"]]
+            mapping["quantity"] = (left[-1] if left else numeric_cols[0])["idx"]
+        else:
+            mapping["quantity"] = numeric_cols[0]["idx"]
+
+    # 3. The unit price is the next numeric column after the quantity (a total may follow it; the
+    #    first one after is the unit price, which is what a .x84 carries).
+    after = [s for s in numeric_cols if s["idx"] > mapping.get("quantity", -1)]
+    if after:
+        mapping["unit_price"] = after[0]["idx"]
+
+    # 4. The description is the wordiest non-numeric column that is not already claimed.
+    claimed = set(mapping.values())
+    prose = [
+        s for s in stats
+        if s["idx"] not in claimed and s["numeric"] < 0.6 and s["unit"] < 0.5 and s["avg_len"] >= 8
+    ]
+    if prose:
+        mapping["short_text"] = max(prose, key=lambda s: s["avg_len"])["idx"]
+
+    # 5. The position number: a short, mostly-filled column left of the description — typically the
+    #    first column, holding things like "01.02.0030".
+    claimed = set(mapping.values())
+    left_of_text = [
+        s for s in stats
+        if s["idx"] not in claimed
+        and s["idx"] < mapping.get("short_text", width)
+        and s["filled"] > 0
+        and s["avg_len"] <= 16
+    ]
+    if left_of_text:
+        mapping["oz"] = left_of_text[0]["idx"]
+
+    return mapping
+
+
+def _infer_columns(rows: list[list[str]]) -> dict[str, int]:
+    """Infer the columns, tolerating a header row we could not name.
+
+    Two passes, because an unrecognised header row is itself a row: with a short LV its text cells
+    drag every column's numeric fraction below the threshold and nothing is identified. (Measured
+    live: a file with one header row and one position failed, while the same file with two positions
+    worked — the tests had two rows and hid it.) So try the rows as given, then again without the
+    first one, and take the first pass that identifies a description and a quantity.
+    """
+    for candidate in (rows, rows[1:]):
+        if not candidate:
+            continue
+        inferred = _infer_columns_by_content(candidate)
+        if {"short_text", "quantity"} <= set(inferred):
+            return inferred
+    return _infer_columns_by_content(rows)
+
+
+def _sample(rows: list[list[str]], limit: int = 3) -> str:
+    """A short, readable echo of what was actually read — so a failure says what it saw rather than
+    only that it failed."""
+    shown = [" | ".join(c for c in row if c.strip())[:120] for row in rows[:limit] if any(row)]
+    return "; ".join(f"[{s}]" for s in shown) or "(no readable rows)"
+
+
+def positions_from_rows(
+    header: list[str], rows: list[list[str]], *, columns: dict[str, int] | None = None
+) -> list[Position]:
+    """Turn a header + data rows into positions. The header decides the columns; anything it does not
+    label is inferred from the data (`_infer_columns_by_content`). Pass `columns` to supply the
+    mapping outright, for a file with no header row at all. The position number is generated if the
+    file has none, and the price may be blank — the human fills it before export."""
+    cols = dict(columns) if columns is not None else _map_columns(header)
+    missing = {"short_text", "quantity", "unit"} - set(cols)
+    if missing and columns is None:
+        # Fill only what the header did not name, so an explicit label always wins over a guess.
+        inferred = _infer_columns(rows)
+        for field in missing:
+            if field in inferred and inferred[field] not in cols.values():
+                cols[field] = inferred[field]
+
+    # A unit column is nice to have, not essential — a .x84 position can carry an empty QU, and some
+    # LVs put the unit inside the description. A description and a quantity are the real minimum.
+    for required in ("short_text", "quantity"):
         if required not in cols:
             raise NoPositionsError(
-                f"could not find a '{required}' column among headers: {header}"
+                f"could not identify a '{required}' column. Headers read: {header}. "
+                f"First rows: {_sample(rows)}"
             )
 
     def cell(row: list[str], field: str) -> str | None:
@@ -120,7 +278,7 @@ def positions_from_rows(header: list[str], rows: list[list[str]]) -> list[Positi
         qty_raw = cell(row, "quantity")
         if not desc and not (qty_raw and qty_raw.strip()):
             continue  # a blank or separator row
-        quantity = parse_decimal(qty_raw)
+        quantity = _maybe_decimal(qty_raw)
         if quantity is None:
             continue  # a heading row with text but no quantity — not a priceable position
         oz = (cell(row, "oz") or "").strip() or f"{n * 10:04d}"
@@ -133,7 +291,7 @@ def positions_from_rows(header: list[str], rows: list[list[str]]) -> list[Positi
                 short_text=desc,
                 quantity=quantity,
                 unit=unit,
-                unit_price=parse_decimal(cell(row, "unit_price")),
+                unit_price=_maybe_decimal(cell(row, "unit_price")),
                 long_text=long_text,
                 section=section,
             )
@@ -156,12 +314,15 @@ def read_csv(data: bytes, *, project_name: str) -> BillOfQuantities:
     except csv.Error:
         dialect = csv.get_dialect("excel")
     reader = csv.reader(io.StringIO(text), dialect)
-    all_rows = [row for row in reader if any(c.strip() for c in row)]
-    if not all_rows:
+    grid = [row for row in reader if any(c.strip() for c in row)]
+    if not grid:
         raise UnreadableFileError("the CSV is empty")
-    header, rows = all_rows[0], all_rows[1:]
-    positions = positions_from_rows(header, rows)
-    return BillOfQuantities(project_name=project_name, positions=tuple(positions))
+    # Same tail as every other grid source: find the header row rather than assuming row 1 (an export
+    # may carry title lines above it, or none at all), and fall back to reading the columns from the
+    # data when the labels are ones we do not know.
+    return BillOfQuantities(
+        project_name=project_name, positions=tuple(_positions_from_grid(grid))
+    )
 
 
 def _cell_str(value: object) -> str:
@@ -183,11 +344,28 @@ def _positions_from_grid(grid: list[list[str]]) -> list[Position]:
     rows = [row for row in grid if any((c or "").strip() for c in row)]
     if not rows:
         raise UnreadableFileError("there were no rows to read")
+
+    # Best case: a row that names the columns outright. Take the first that identifies a description
+    # and a quantity (a unit column is optional — see positions_from_rows).
     for i, candidate in enumerate(rows):
-        if {"short_text", "quantity", "unit"} <= set(_map_columns(candidate)):
-            return positions_from_rows(candidate, rows[i + 1 :])
+        if {"short_text", "quantity"} <= set(_map_columns(candidate)):
+            try:
+                return positions_from_rows(candidate, rows[i + 1 :])
+            except NoPositionsError:
+                continue  # that row looked like a header but yielded nothing — keep scanning
+
+    # No recognisable header: many Word and PDF LVs simply do not print one. Read the columns from
+    # the data instead, treating every row as a position and letting the non-numeric ones drop out.
+    inferred = _infer_columns(rows)
+    if {"short_text", "quantity"} <= set(inferred):
+        try:
+            return positions_from_rows([], rows, columns=inferred)
+        except NoPositionsError:
+            pass
+
     raise NoPositionsError(
-        "no header row with a description, quantity and unit column was found"
+        "could not identify the description and quantity columns in this file. "
+        f"First rows read: {_sample(rows)}"
     )
 
 
