@@ -13,7 +13,6 @@ type GaebStrings = {
   intro: string;
   choose: string;
   noFile: string;
-  projectName: string;
   convert: string;
   converting: string;
   verifyNote: string;
@@ -40,7 +39,6 @@ const STRINGS: Partial<Record<UiLang, GaebStrings>> & { en: GaebStrings } = {
       "Turn a bill of quantities (Leistungsverzeichnis) — Excel, CSV, Word, PDF, or an existing GAEB file — into a GAEB DA XML .x84 offer. Check the positions and prices, then export. (PDF extraction is best-effort; verify it closely.)",
     choose: "Choose file",
     noFile: "No file chosen",
-    projectName: "Project name",
     convert: "Read positions",
     converting: "Reading…",
     verifyNote:
@@ -66,7 +64,6 @@ const STRINGS: Partial<Record<UiLang, GaebStrings>> & { en: GaebStrings } = {
       "Ein Leistungsverzeichnis — Excel, CSV, Word, PDF oder eine vorhandene GAEB-Datei — in ein GAEB-DA-XML-.x84-Angebot umwandeln. Positionen und Preise prüfen, dann exportieren. (PDF-Extraktion ist ein Näherungswert; genau prüfen.)",
     choose: "Datei wählen",
     noFile: "Keine Datei gewählt",
-    projectName: "Projektname",
     convert: "Positionen einlesen",
     converting: "Wird eingelesen…",
     verifyNote:
@@ -92,7 +89,6 @@ const STRINGS: Partial<Record<UiLang, GaebStrings>> & { en: GaebStrings } = {
       "სამუშაოთა ნუსხა (LV) — Excel, CSV, Word, PDF ან არსებული GAEB ფაილი — გადააქციე GAEB DA XML .x84 შეთავაზებად. შეამოწმე პოზიციები და ფასები, მერე ექსპორტი. (PDF-ის ამოღება მიახლოებითია — კარგად შეამოწმე.)",
     choose: "ფაილის არჩევა",
     noFile: "ფაილი არ არის არჩეული",
-    projectName: "პროექტის სახელი",
     convert: "პოზიციების წაკითხვა",
     converting: "იკითხება…",
     verifyNote:
@@ -168,9 +164,12 @@ export default function GaebPage() {
       setError(t.needFile);
       return;
     }
+    // The project is simply what the file is called — no separate field to fill in. The name drives
+    // the .x84's PrjInfo and the download filename, so "Freianlagen.pdf" comes back "Freianlagen.x84".
+    const base = file.name.replace(/\.[^.]+$/, "");
     const form = new FormData();
     form.append("file", file, file.name);
-    form.append("project_name", projectName.trim() || file.name.replace(/\.[^.]+$/, ""));
+    form.append("project_name", base);
 
     setBusy(true);
     try {
@@ -182,7 +181,7 @@ export default function GaebPage() {
         return;
       }
       const boq = data as GaebBoQ;
-      setProjectName(boq.project_name);
+      setProjectName(base);
       setPositions(boq.positions);
     } catch {
       setError("The server could not be reached. Try again in a moment.");
@@ -264,12 +263,6 @@ export default function GaebPage() {
           />
         </label>
         <span className="text-xs text-neutral-500">{fileName || t.noFile}</span>
-        <input
-          value={projectName}
-          onChange={(e) => setProjectName(e.target.value)}
-          placeholder={t.projectName}
-          className="rounded-md border border-neutral-300 bg-transparent px-2 py-1.5 text-sm dark:border-neutral-700"
-        />
         <button
           type="button"
           onClick={convert}
