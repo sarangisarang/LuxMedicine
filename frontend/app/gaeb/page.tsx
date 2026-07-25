@@ -419,7 +419,11 @@ export default function GaebPage() {
                     {grid.slice(0, 6).map((row, r) => (
                       <tr key={r} className="border-t border-neutral-100 dark:border-neutral-900">
                         {roles.map((_, c) => (
-                          <td key={c} className="max-w-[16rem] truncate p-1 text-neutral-500">
+                          <td
+                            key={c}
+                            title={row[c] ?? ""}
+                            className="max-w-[16rem] truncate p-1 text-neutral-500"
+                          >
                             {row[c] ?? ""}
                           </td>
                         ))}
@@ -484,11 +488,16 @@ export default function GaebPage() {
                           className="w-32 rounded border border-transparent bg-transparent px-1 py-0.5 hover:border-neutral-200 dark:hover:border-neutral-800"
                         />
                       </td>
-                      <td className="py-1 pr-2">
-                        <input
+                      <td className="w-1/2 py-1 pr-2">
+                        {/* A textarea, not a single-line input: a Leistungstext runs to a full
+                            sentence and was being clipped at the width of the box. It wraps to as
+                            many lines as it needs, so the whole text is readable — the point of the
+                            table is to show what the document says. */}
+                        <textarea
                           value={r.text}
                           onChange={(e) => update(i, "text", e.target.value)}
-                          className="w-full min-w-[18rem] rounded border border-transparent bg-transparent px-1 py-0.5 hover:border-neutral-200 dark:hover:border-neutral-800"
+                          rows={Math.max(1, Math.ceil(r.text.length / 55))}
+                          className="w-full min-w-[22rem] resize-y rounded border border-transparent bg-transparent px-1 py-0.5 leading-snug hover:border-neutral-200 dark:hover:border-neutral-800"
                         />
                         {/* The Langtext — where a German LV prints its DIN references. */}
                         {r.long_text && (
