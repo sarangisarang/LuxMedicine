@@ -52,15 +52,15 @@ async def test_parse_reads_a_csv_into_positions():
         await _clear()
 
 
-async def test_parse_rejects_pdf_with_a_clear_415():
+async def test_parse_unreadable_pdf_is_422():
+    # PDF is supported now, but this is not a valid PDF — a clear 422, not a crash or a garbled parse.
     try:
         async with _client() as client:
             r = await client.post(
                 "/gaeb/parse",
-                files={"file": ("lv.pdf", b"%PDF-1.4\n...", "application/pdf")},
+                files={"file": ("lv.pdf", b"%PDF-1.4\nnot really a pdf", "application/pdf")},
             )
-        assert r.status_code == 415
-        assert "PDF" in r.json()["detail"]
+        assert r.status_code == 422
     finally:
         await _clear()
 

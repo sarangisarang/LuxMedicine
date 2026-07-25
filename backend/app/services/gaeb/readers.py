@@ -18,7 +18,9 @@ import io
 import xml.etree.ElementTree as ET
 from decimal import Decimal, InvalidOperation
 
+import docx
 import openpyxl
+import pdfplumber
 
 from app.services.gaeb.model import BillOfQuantities, Position
 
@@ -173,32 +175,74 @@ def _cell_str(value: object) -> str:
     return str(value).strip()
 
 
+def _positions_from_grid(grid: list[list[str]]) -> list[Position]:
+    """Shared tail for every grid-shaped source (spreadsheet, Word table, PDF table). A real LV often
+    has title rows above the table, so rather than assuming row 1, scan for the first row that maps to
+    a description+quantity+unit and take it as the header. A header that repeats lower down (Word/PDF
+    print it per page) is harmless: those rows carry no numeric quantity and are dropped."""
+    rows = [row for row in grid if any((c or "").strip() for c in row)]
+    if not rows:
+        raise UnreadableFileError("there were no rows to read")
+    for i, candidate in enumerate(rows):
+        if {"short_text", "quantity", "unit"} <= set(_map_columns(candidate)):
+            return positions_from_rows(candidate, rows[i + 1 :])
+    raise NoPositionsError(
+        "no header row with a description, quantity and unit column was found"
+    )
+
+
 def read_xlsx(data: bytes, *, project_name: str) -> BillOfQuantities:
     """Read the first worksheet of an .xlsx. `data_only=True` returns the last-computed values, so a
-    priced LV with formula totals still yields numbers rather than "=A1*B1". The first row that maps
-    to at least a description+quantity+unit is taken as the header."""
+    priced LV with formula totals still yields numbers rather than "=A1*B1"."""
     try:
         wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
     except Exception as exc:  # openpyxl raises a variety of types on a bad/other-format file
         raise UnreadableFileError(f"not a readable .xlsx: {exc}") from exc
+    grid = [[_cell_str(c) for c in row] for row in wb.active.iter_rows(values_only=True)]
+    return BillOfQuantities(project_name=project_name, positions=tuple(_positions_from_grid(grid)))
 
-    sheet = wb.active
-    grid = [[_cell_str(c) for c in row] for row in sheet.iter_rows(values_only=True)]
-    grid = [row for row in grid if any(c for c in row)]
+
+def read_docx(data: bytes, *, project_name: str) -> BillOfQuantities:
+    """Read a Word LV. The positions live in a real table, so this is structured extraction, not a
+    guess: every table's rows are gathered into one grid and the header is found in it. A document
+    that splits the LV across page-tables (each repeating the header) still reads correctly."""
+    try:
+        document = docx.Document(io.BytesIO(data))
+    except Exception as exc:
+        raise UnreadableFileError(f"not a readable .docx: {exc}") from exc
+    grid: list[list[str]] = []
+    for table in document.tables:
+        for row in table.rows:
+            grid.append([cell.text.strip() for cell in row.cells])
     if not grid:
-        raise UnreadableFileError("the spreadsheet is empty")
+        raise NoPositionsError("the Word document has no tables to read positions from")
+    return BillOfQuantities(project_name=project_name, positions=tuple(_positions_from_grid(grid)))
 
-    # A real LV often has title rows above the table. Scan for the first row that maps cleanly to the
-    # required columns, and treat it as the header — rather than assuming row 1.
-    for i, candidate in enumerate(grid):
-        if {"short_text", "quantity", "unit"} <= set(_map_columns(candidate)):
-            return BillOfQuantities(
-                project_name=project_name,
-                positions=tuple(positions_from_rows(candidate, grid[i + 1 :])),
-            )
-    raise NoPositionsError(
-        "no header row with a description, quantity and unit column was found in the spreadsheet"
-    )
+
+def read_pdf(data: bytes, *, project_name: str) -> BillOfQuantities:
+    """Read a PDF LV by extracting its tables with pdfplumber. This is the fragile path — a page's
+    ruled table extracts cleanly, a borderless or scanned one may not — which is exactly why the
+    result goes to the human-verify table, not straight to a .x84. If no table can be extracted, say
+    so and point at the reliable formats rather than returning a garbled parse."""
+    try:
+        pdf = pdfplumber.open(io.BytesIO(data))
+    except Exception as exc:
+        raise UnreadableFileError(f"not a readable PDF: {exc}") from exc
+    grid: list[list[str]] = []
+    try:
+        with pdf:
+            for page in pdf.pages:
+                for table in page.extract_tables() or []:
+                    for row in table:
+                        grid.append([(cell or "").strip() for cell in row])
+    except Exception as exc:
+        raise UnreadableFileError(f"could not read the PDF's tables: {exc}") from exc
+    if not grid:
+        raise NoPositionsError(
+            "no table could be extracted from this PDF (it may be scanned or have no ruled table) — "
+            "export the Leistungsverzeichnis to Excel or Word, or upload a GAEB file"
+        )
+    return BillOfQuantities(project_name=project_name, positions=tuple(_positions_from_grid(grid)))
 
 
 def _local(tag: str) -> str:
@@ -278,22 +322,26 @@ def read_any(filename: str, data: bytes, *, project_name: str) -> BillOfQuantiti
             if ext == "xml" or ext in _GAEB_EXTS:
                 raise  # it claimed to be GAEB/XML and was not — say so, do not fall through
 
-    if ext in {"xlsx", "xlsm"} or data[:2] == b"PK":
+    # Extension first: .docx and .xlsx are both ZIP files (magic bytes "PK"), so only the extension
+    # tells them apart reliably.
+    if ext == "docx":
+        return read_docx(data, project_name=project_name)
+    if ext in {"xlsx", "xlsm"}:
         return read_xlsx(data, project_name=project_name)
-
     if ext in {"csv", "txt"}:
         return read_csv(data, project_name=project_name)
-
     if ext == "pdf" or data[:5] == b"%PDF-":
-        raise UnsupportedFormatError(
-            "PDF conversion is not available yet — export the Leistungsverzeichnis to Excel or CSV, "
-            "or upload an existing GAEB file"
-        )
-
+        return read_pdf(data, project_name=project_name)
     if ext == "xls":
         raise UnsupportedFormatError(
             "the old .xls format is not supported — save it as .xlsx and upload that"
         )
 
-    # Unknown extension, no magic bytes: try CSV as the most forgiving text format.
+    # No/unknown extension: fall back on magic bytes. A ZIP could be either Office format, so try the
+    # spreadsheet then the document; otherwise treat it as delimited text.
+    if data[:2] == b"PK":
+        try:
+            return read_xlsx(data, project_name=project_name)
+        except (UnreadableFileError, NoPositionsError):
+            return read_docx(data, project_name=project_name)
     return read_csv(data, project_name=project_name)

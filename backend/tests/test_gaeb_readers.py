@@ -15,7 +15,9 @@ from app.services.gaeb.readers import (
     UnreadableFileError,
     parse_decimal,
     read_csv,
+    read_docx,
     read_gaeb,
+    read_pdf,
     read_xlsx,
 )
 from app.services.gaeb.writer import write_x84
@@ -129,3 +131,79 @@ def test_gaeb_round_trip_preserves_positions():
 def test_read_gaeb_rejects_non_gaeb_xml():
     with pytest.raises(UnreadableFileError):
         read_gaeb(b"<html><body>not gaeb</body></html>")
+
+
+def _docx(header: list[str], rows: list[list[str]]) -> bytes:
+    import docx
+
+    document = docx.Document()
+    table = document.add_table(rows=1 + len(rows), cols=len(header))
+    for j, h in enumerate(header):
+        table.rows[0].cells[j].text = h
+    for i, row in enumerate(rows, start=1):
+        for j, value in enumerate(row):
+            table.rows[i].cells[j].text = str(value)
+    buf = io.BytesIO()
+    document.save(buf)
+    return buf.getvalue()
+
+
+def test_read_docx_table():
+    data = _docx(
+        ["Pos", "Bezeichnung", "Menge", "ME", "EP"],
+        [["1.1", "Mauerwerk", "12,5", "m2", "45,00"], ["1.2", "Putz", "30", "m2", "18,50"]],
+    )
+    boq = read_docx(data, project_name="Neubau")
+    assert len(boq.positions) == 2
+    assert boq.positions[0].short_text == "Mauerwerk"
+    assert boq.positions[0].quantity == Decimal("12.5")
+    assert boq.positions[1].unit_price == Decimal("18.5")
+
+
+def test_read_docx_without_a_table_raises():
+    import docx
+
+    document = docx.Document()
+    document.add_paragraph("Just prose, no table.")
+    buf = io.BytesIO()
+    document.save(buf)
+    with pytest.raises(NoPositionsError):
+        read_docx(buf.getvalue(), project_name="x")
+
+
+def _pdf_with_table(header: list[str], rows: list[list[str]]) -> bytes:
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4)
+    table = Table([header, *rows])
+    table.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.5, colors.black)]))
+    doc.build([table])
+    return buf.getvalue()
+
+
+def test_read_pdf_ruled_table():
+    data = _pdf_with_table(
+        ["Pos", "Bezeichnung", "Menge", "ME", "EP"],
+        [["1.1", "Mauerwerk", "12,5", "m2", "45,00"], ["1.2", "Putz", "30", "m2", "18,50"]],
+    )
+    boq = read_pdf(data, project_name="Neubau")
+    assert len(boq.positions) == 2
+    assert boq.positions[0].short_text == "Mauerwerk"
+    assert boq.positions[0].quantity == Decimal("12.5")
+
+
+def test_read_pdf_without_a_table_reports_cleanly():
+    # A PDF with only prose (no ruled table) — the honest "couldn't extract", not a garbled parse.
+    from reportlab.lib.pagesizes import A4
+    from reportlab.platypus import Paragraph, SimpleDocTemplate
+    from reportlab.lib.styles import getSampleStyleSheet
+
+    buf = io.BytesIO()
+    SimpleDocTemplate(buf, pagesize=A4).build(
+        [Paragraph("A letter with no bill of quantities.", getSampleStyleSheet()["Normal"])]
+    )
+    with pytest.raises(NoPositionsError):
+        read_pdf(buf.getvalue(), project_name="x")

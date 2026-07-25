@@ -27,6 +27,9 @@ dependencies = [
     # Reading .xlsx spreadsheets for the GAEB converter (services/gaeb). A Leistungsverzeichnis is
     # most often kept in Excel, and columns there are explicit — the high-fidelity input path.
     "openpyxl>=3.1",
+    # Reading .docx tables for the GAEB converter. A Word LV keeps its positions in a real table, so
+    # extraction is structured, not guessed — the fidelity sits between a spreadsheet and a PDF.
+    "python-docx>=1.1",
     # Identity (#30). `[crypto]` pulls in `cryptography` for RS256 — without the
     # extra, pyjwt silently supports only HMAC and every RS256 token fails.
     "pyjwt[crypto]>=2.10",

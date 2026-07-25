@@ -37,7 +37,7 @@ const STRINGS: Partial<Record<UiLang, GaebStrings>> & { en: GaebStrings } = {
   en: {
     title: "GAEB converter",
     intro:
-      "Turn a bill of quantities (Leistungsverzeichnis) — Excel, CSV, or an existing GAEB file — into a GAEB DA XML .x84 offer. Check the positions and prices, then export.",
+      "Turn a bill of quantities (Leistungsverzeichnis) — Excel, CSV, Word, PDF, or an existing GAEB file — into a GAEB DA XML .x84 offer. Check the positions and prices, then export. (PDF extraction is best-effort; verify it closely.)",
     choose: "Choose file",
     noFile: "No file chosen",
     projectName: "Project name",
@@ -63,7 +63,7 @@ const STRINGS: Partial<Record<UiLang, GaebStrings>> & { en: GaebStrings } = {
   de: {
     title: "GAEB-Konverter",
     intro:
-      "Ein Leistungsverzeichnis — Excel, CSV oder eine vorhandene GAEB-Datei — in ein GAEB-DA-XML-.x84-Angebot umwandeln. Positionen und Preise prüfen, dann exportieren.",
+      "Ein Leistungsverzeichnis — Excel, CSV, Word, PDF oder eine vorhandene GAEB-Datei — in ein GAEB-DA-XML-.x84-Angebot umwandeln. Positionen und Preise prüfen, dann exportieren. (PDF-Extraktion ist ein Näherungswert; genau prüfen.)",
     choose: "Datei wählen",
     noFile: "Keine Datei gewählt",
     projectName: "Projektname",
@@ -89,7 +89,7 @@ const STRINGS: Partial<Record<UiLang, GaebStrings>> & { en: GaebStrings } = {
   ka: {
     title: "GAEB-კონვერტერი",
     intro:
-      "სამუშაოთა ნუსხა (LV) — Excel, CSV ან არსებული GAEB ფაილი — გადააქციე GAEB DA XML .x84 შეთავაზებად. შეამოწმე პოზიციები და ფასები, მერე ექსპორტი.",
+      "სამუშაოთა ნუსხა (LV) — Excel, CSV, Word, PDF ან არსებული GAEB ფაილი — გადააქციე GAEB DA XML .x84 შეთავაზებად. შეამოწმე პოზიციები და ფასები, მერე ექსპორტი. (PDF-ის ამოღება მიახლოებითია — კარგად შეამოწმე.)",
     choose: "ფაილის არჩევა",
     noFile: "ფაილი არ არის არჩეული",
     projectName: "პროექტის სახელი",
@@ -258,7 +258,7 @@ export default function GaebPage() {
           <input
             ref={inputRef}
             type="file"
-            accept=".xlsx,.xlsm,.csv,.txt,.x81,.x82,.x83,.x84,.x85,.x86,.xml"
+            accept=".xlsx,.xlsm,.csv,.txt,.docx,.pdf,.x81,.x82,.x83,.x84,.x85,.x86,.xml"
             onChange={(e) => setFileName(e.target.files?.[0]?.name ?? "")}
             className="sr-only"
           />
