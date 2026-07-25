@@ -28,6 +28,7 @@ from app.services.gaeb.readers import (
     detect_columns,
     detect_thousands_separator,
     parse_decimal,
+    parse_quantity,
     read_any,
     read_grid,
     split_quantity_unit,
@@ -154,8 +155,9 @@ def _entry_to_position(e: EntryDTO, index: int, thousands: str | None) -> Positi
     corrected by hand — and never recalculated."""
     if e.kind != "position":
         return None
-    quantity_text, split_unit = split_quantity_unit(e.menge_einheit)
-    quantity = parse_decimal(quantity_text, thousands=thousands)
+    # The same reader the file went through, so a cell accepted on the way in ("25m3", "1Ps...")
+    # cannot be rejected as "not a number" on the way out.
+    quantity, split_unit = parse_quantity(e.menge_einheit, thousands)
     return Position(
         oz=e.number.strip() or f"{index * 10:04d}",
         short_text=e.text.strip(),

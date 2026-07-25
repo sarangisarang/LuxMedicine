@@ -98,6 +98,36 @@ async def test_export_returns_a_downloadable_x84():
         await _clear()
 
 
+async def test_export_reads_the_quantities_the_file_actually_contains():
+    """The reported failure: "row 5 ('2.01.01.01'): not a number: '25m3'". A quantity run together
+    with its unit is read on the way IN, so rejecting it on the way OUT made the file unexportable.
+    Both directions now go through the same reader."""
+    body = {
+        "project_name": "Freianlagen",
+        "entries": [
+            {"kind": "kg", "number": "500", "text": "Außenanlagen", "gesamt": "2.218.779,50"},
+            {"kind": "position", "number": "2.01.01.01", "text": "Beton",
+             "menge_einheit": "25m3", "teilbetrag_ep": "521,80", "gesamt": "13.045,00"},
+            {"kind": "position", "number": "3.09.01.01", "text": "Baustelleneinrichtung",
+             "menge_einheit": "1Ps...", "teilbetrag_ep": "12.850,00", "gesamt": "12.850,00"},
+        ],
+    }
+    try:
+        async with _client() as client:
+            r = await client.post("/gaeb/export", json=body)
+        assert r.status_code == 200, r.text
+        root = ET.fromstring(r.content)
+        ns = {"g": GAEB_NAMESPACE}
+        items = root.findall(".//g:Item", ns)
+        assert len(items) == 2  # the cost group is structure, not an item
+        assert items[0].find("g:Qty", ns).text == "25.000"
+        assert items[0].find("g:QU", ns).text == "m3"
+        # The line total is the file's own figure, taken over rather than recomputed.
+        assert items[0].find("g:IT", ns).text == "13045.00"
+    finally:
+        await _clear()
+
+
 async def test_export_refuses_an_unpriced_position():
     body = {
         "project_name": "x",

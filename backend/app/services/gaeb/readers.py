@@ -216,6 +216,40 @@ def _maybe_decimal(raw: str | None, *, thousands: str | None = None) -> Decimal 
         return None
 
 
+def parse_quantity(cell: str | None, thousands: str | None = None) -> tuple[Decimal | None, str]:
+    """Read a quantity cell into its number and whatever unit was printed with it.
+
+    One reader for every caller — the file, and the table sent back for export — because they must
+    agree: a cell that is a valid quantity on the way in cannot be rejected as "not a number" on the
+    way out. The forms a real LV produces, in order of confidence:
+      "25"        the number alone
+      "720 m2"    number and unit, separated, unit recognised
+      "25m3"      run together, no space at all
+      "1Ps..."    the unit cut short by the source's own column width
+    This is the quantity column, so a cell that begins with a number IS a quantity, whatever follows.
+    """
+    text = (cell or "").strip()
+    if not text:
+        return None, ""
+
+    direct = _maybe_decimal(text, thousands=thousands)
+    if direct is not None:
+        return direct, ""
+
+    number, unit = split_quantity_unit(text)
+    if unit:
+        value = _maybe_decimal(number, thousands=thousands)
+        if value is not None:
+            return value, unit
+
+    leading = re.match(r"^([\d.,]+)\s*(.*)$", text)
+    if leading:
+        value = _maybe_decimal(leading.group(1), thousands=thousands)
+        if value is not None:
+            return value, leading.group(2).strip().rstrip(".")
+    return None, ""
+
+
 def _numeric_value(value: str | None, thousands: str | None = None) -> Decimal | None:
     """The number in a cell, including one that carries its unit ("720 m2" -> 720).
 
@@ -556,20 +590,7 @@ def positions_from_rows(
         total_raw = (cell(row, "total") or "").strip()
         if not desc and not (qty_raw and qty_raw.strip()) and not total_raw:
             continue  # a blank or separator row
-        quantity = _maybe_decimal(qty_raw, thousands=thousands)
-        # "720 m2" in one cell: separate the unit rather than lose the whole row.
-        split_unit = ""
-        if quantity is None and qty_raw:
-            number, split_unit = split_quantity_unit(qty_raw)
-            quantity = _maybe_decimal(number, thousands=thousands) if split_unit else None
-        if quantity is None and qty_raw:
-            # This is the QUANTITY column, so a cell that begins with a number is a quantity, whatever
-            # follows it. Needed for a unit the source abbreviated past recognition — "1Ps..." for one
-            # Pauschale — where insisting on a known unit dropped the position altogether.
-            leading = re.match(r"^\s*([\d.,]+)\s*(.*)$", qty_raw)
-            if leading:
-                quantity = _maybe_decimal(leading.group(1), thousands=thousands)
-                split_unit = leading.group(2).strip().rstrip(".") or split_unit
+        quantity, split_unit = parse_quantity(qty_raw, thousands)
         oz = (cell(row, "oz") or "").strip()
 
         if quantity is None:
