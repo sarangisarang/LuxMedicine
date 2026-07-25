@@ -24,9 +24,11 @@ from app.services.gaeb.readers import (
     NoPositionsError,
     UnreadableFileError,
     UnsupportedFormatError,
+    detect_columns,
     detect_thousands_separator,
     parse_decimal,
     read_any,
+    read_grid,
     split_quantity_unit,
 )
 from app.services.gaeb.writer import UnpricedOfferError, write_x84
@@ -81,6 +83,11 @@ class BoQDTO(BaseModel):
     positions: list[PositionDTO] = Field(default_factory=list)
     # The document as it stands, for display. `positions` is the subset that can become .x84 items.
     entries: list[EntryDTO] = Field(default_factory=list)
+    # The file exactly as extraction produced it, plus the column mapping we guessed. Published so a
+    # wrong guess can be seen and corrected in the interface rather than argued with.
+    grid: list[list[str]] = Field(default_factory=list)
+    mapping: dict[str, int] = Field(default_factory=dict)
+    data_starts_at: int = 0
 
 
 def _fmt(value: Decimal | None, places: int) -> str:
@@ -246,7 +253,20 @@ async def parse_upload(
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from exc
     except (UnreadableFileError, NoPositionsError) as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
-    return _to_dto(boq)
+
+    dto = _to_dto(boq)
+    # Publish the raw extraction too. If the guess below put a column in the wrong place, this is
+    # what lets a person fix it — without it the only recourse is to describe the problem and wait.
+    try:
+        grid = [[(c or "").strip() for c in row] for row in read_grid(file.filename or "", data)]
+        grid = [row for row in grid if any(row)]
+        mapping, start = detect_columns(grid)
+    except Exception:  # a raw view is a convenience; never fail the conversion for it
+        grid, mapping, start = [], {}, 0
+    dto.grid = grid
+    dto.mapping = mapping
+    dto.data_starts_at = start
+    return dto
 
 
 def _download_name(project_name: str) -> str:

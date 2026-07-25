@@ -869,3 +869,67 @@ def read_any(filename: str, data: bytes, *, project_name: str) -> BillOfQuantiti
         except (UnreadableFileError, NoPositionsError):
             return read_docx(data, project_name=project_name)
     return read_csv(data, project_name=project_name)
+
+# --- the raw view, for correcting a wrong guess ---------------------------------------------------
+#
+# Automatic column detection cannot be right for every document — a PDF's table is whatever the
+# extractor made of the page, and a wrong guess quietly puts a position number in the quantity column.
+# So the grid and the guess are both published: the interface shows the file as extracted and lets a
+# person say which column is which, and that mapping wins over anything inferred here.
+
+
+def read_grid(filename: str, data: bytes) -> list[list[str]]:
+    """The file as a table of text, exactly as extraction produced it — no interpretation."""
+    name = (filename or "").lower().strip()
+    ext = name.rsplit(".", 1)[-1] if "." in name else ""
+    head = data[:400].lstrip()
+
+    if ext == "docx":
+        document = docx.Document(io.BytesIO(data))
+        return [[c.text.strip() for c in row.cells] for t in document.tables for row in t.rows]
+    if ext in {"xlsx", "xlsm"}:
+        wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+        return [[_cell_str(c) for c in row] for row in wb.active.iter_rows(values_only=True)]
+    if ext == "pdf" or data[:5] == b"%PDF-":
+        grid: list[list[str]] = []
+        with pdfplumber.open(io.BytesIO(data)) as pdf:
+            for page in pdf.pages:
+                for table in page.extract_tables() or []:
+                    for row in table:
+                        grid.append([(cell or "").strip() for cell in row])
+        return grid
+    if ext in _GAEB_EXTS or head.startswith(b"<?xml") or b"<GAEB" in head:
+        boq = read_gaeb(data)
+        return [
+            [p.oz, p.short_text, f"{p.quantity} {p.unit}".strip(),
+             "" if p.unit_price is None else str(p.unit_price),
+             "" if p.source_total is None else str(p.source_total)]
+            for p in boq.positions
+        ]
+    try:
+        text = data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = data.decode("latin-1")
+    try:
+        dialect = csv.Sniffer().sniff(text[:4096], delimiters=";,\t")
+    except csv.Error:
+        dialect = csv.get_dialect("excel")
+    return [row for row in csv.reader(io.StringIO(text), dialect) if any(c.strip() for c in row)]
+
+
+def detect_columns(grid: list[list[str]]) -> tuple[dict[str, int], int]:
+    """Our best guess at which column is which, and the row the data starts on.
+
+    Returned rather than only used, so the interface can show the guess and let it be overruled.
+    """
+    rows = [row for row in grid if any((c or "").strip() for c in row)]
+    if not rows:
+        return {}, 0
+    for i, candidate in enumerate(rows):
+        mapped = _map_columns(candidate)
+        if {"short_text", "quantity"} <= set(mapped):
+            thousands = detect_thousands_separator(_all_cells(rows[i + 1 :]))
+            return _verify_price_column(rows[i + 1 :], mapped, thousands), i + 1
+    inferred = _infer_columns(rows)
+    thousands = detect_thousands_separator(_all_cells(rows))
+    return _verify_price_column(rows, inferred, thousands), 0

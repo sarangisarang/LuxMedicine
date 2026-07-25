@@ -227,6 +227,11 @@ export type GaebBoQ = {
   positions: GaebPosition[];
   /** The document as it stands, in order. This is what the table shows. */
   entries: GaebEntry[];
+  /** The file exactly as extraction produced it, and the column mapping the server guessed.
+   *  Published so a wrong guess can be corrected in the interface. */
+  grid: string[][];
+  mapping: Record<string, number>;
+  data_starts_at: number;
 };
 
 /**

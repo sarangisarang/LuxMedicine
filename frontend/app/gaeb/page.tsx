@@ -17,6 +17,11 @@ type GaebStrings = {
   converting: string;
   verifyNote: string;
   colKgOz: string;
+  mapperTitle: string;
+  mapperHint: string;
+  roleIgnore: string;
+  roleText: string;
+  dataStartsAt: string;
   colText: string;
   colQty: string;
   colUnit: string;
@@ -45,6 +50,11 @@ const STRINGS: Partial<Record<UiLang, GaebStrings>> & { en: GaebStrings } = {
     verifyNote:
       "Verify every position and unit price before you export — a wrong price in a bid is real money. Nothing is exported that you have not confirmed.",
     colKgOz: "KG / OZ",
+    mapperTitle: "Source columns — correct them if a column was read wrongly",
+    mapperHint: "These are the file's own columns as extracted. Say what each one is; the table below follows immediately.",
+    roleIgnore: "— ignore —",
+    roleText: "Description / Quelleinträge",
+    dataStartsAt: "Data starts at row",
     colText: "DIN 276 (2018-12) / Quelleinträge",
     colQty: "Menge/Einheit",
     colUnit: "Unit",
@@ -72,6 +82,11 @@ const STRINGS: Partial<Record<UiLang, GaebStrings>> & { en: GaebStrings } = {
     verifyNote:
       "Prüfen Sie jede Position und jeden Einheitspreis vor dem Export — ein falscher Preis im Angebot ist echtes Geld. Es wird nichts exportiert, was Sie nicht bestätigt haben.",
     colKgOz: "KG / OZ",
+    mapperTitle: "Spalten der Quelldatei — bei falscher Zuordnung hier korrigieren",
+    mapperHint: "Das sind die Spalten der Datei, wie sie eingelesen wurden. Geben Sie an, was jede Spalte ist; die Tabelle darunter folgt sofort.",
+    roleIgnore: "— ignorieren —",
+    roleText: "Bezeichnung / Quelleinträge",
+    dataStartsAt: "Daten beginnen in Zeile",
     colText: "DIN 276 (2018-12) / Quelleinträge",
     colQty: "Menge/Einheit",
     colUnit: "Einheit",
@@ -99,6 +114,11 @@ const STRINGS: Partial<Record<UiLang, GaebStrings>> & { en: GaebStrings } = {
     verifyNote:
       "ექსპორტამდე შეამოწმე ყოველი პოზიცია და ერთეულის ფასი — არასწორი ფასი ბიდში რეალური ფულია. არაფერი ექსპორტდება, რაც არ დაგიდასტურებია.",
     colKgOz: "KG / OZ",
+    mapperTitle: "წყაროს სვეტები — თუ არასწორად წაიკითხა, აქ გაასწორე",
+    mapperHint: "ეს არის ფაილის სვეტები ისე, როგორც წაიკითხა. მიუთითე, რომელი რაა — ქვემოთ ცხრილი მაშინვე განახლდება.",
+    roleIgnore: "— არ გამოიყენო —",
+    roleText: "დასახელება / Quelleinträge",
+    dataStartsAt: "მონაცემები იწყება მწკრივიდან",
     colText: "DIN 276 (2018-12) / Quelleinträge",
     colQty: "Menge/Einheit",
     colUnit: "ერთ.",
@@ -129,6 +149,52 @@ const EMPTY: GaebEntry = {
   long_text: null,
 };
 
+// Which of the source's columns is which. "—" means the column carries nothing we need.
+const ROLES = ["oz", "short_text", "quantity", "teilbetrag", "total", ""] as const;
+type Role = (typeof ROLES)[number];
+
+// A DIN 276 cost group number: 500 is the first level, 520 the second, 522 the third, 522.1 a
+// fourth. Mirrors kg_level() on the server, so the table groups rows the way the reader does.
+function kgLevel(value: string): number {
+  const m = /^([1-8])(\d)(\d)(?:[.\-/](\d+))?$/.exec((value || "").trim());
+  if (!m) return 0;
+  if (m[4]) return 4;
+  if (m[3] !== "0") return 3;
+  if (m[2] !== "0") return 2;
+  return 1;
+}
+
+/** Build the displayed rows from the raw grid and the current column assignment. Nothing is
+ *  computed here — each cell is carried across exactly as the file wrote it. */
+function rowsFromGrid(grid: string[][], roles: Role[], startAt: number): GaebEntry[] {
+  const at = (row: string[], role: Role): string => {
+    const i = roles.indexOf(role);
+    return i >= 0 && i < row.length ? (row[i] ?? "").trim() : "";
+  };
+  const out: GaebEntry[] = [];
+  grid.slice(startAt).forEach((row) => {
+    if (!row.some((c) => (c || "").trim())) return;
+    const number = at(row, "oz");
+    const text = at(row, "short_text");
+    const menge = at(row, "quantity");
+    const level = kgLevel(number);
+    const kind: GaebEntry["kind"] = level > 0 ? "kg" : menge ? "position" : "entry";
+    if (!number && !text && !menge) return;
+    out.push({
+      kind,
+      number,
+      text,
+      menge_einheit: menge,
+      teilbetrag_ep: at(row, "teilbetrag"),
+      gesamt: at(row, "total"),
+      level,
+      kg: [],
+      long_text: null,
+    });
+  });
+  return out;
+}
+
 function toNumber(raw: string | null): number {
   if (!raw) return 0;
   // Lenient parse for the on-screen estimate only; the backend re-parses authoritatively.
@@ -149,6 +215,11 @@ export default function GaebPage() {
   const [fileName, setFileName] = useState("");
   const [projectName, setProjectName] = useState("");
   const [rows, setRows] = useState<GaebEntry[] | null>(null);
+  // The file as extracted, and which column we take to be what. Kept so the assignment can be
+  // corrected without re-uploading.
+  const [grid, setGrid] = useState<string[][]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [startAt, setStartAt] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -189,8 +260,25 @@ export default function GaebPage() {
       }
       const boq = data as GaebBoQ;
       setProjectName(base);
-      // The document as it stands — headings, source entries and positions, in order.
-      setRows(boq.entries?.length ? boq.entries : []);
+      const raw = boq.grid ?? [];
+      setGrid(raw);
+      setStartAt(boq.data_starts_at ?? 0);
+      if (raw.length) {
+        // Start from the server's guess, then let the user correct it.
+        const width = Math.max(...raw.map((r) => r.length));
+        const assigned: Role[] = Array.from({ length: width }, () => "" as Role);
+        for (const [role, index] of Object.entries(boq.mapping ?? {})) {
+          if ((ROLES as readonly string[]).includes(role) && index < width && !assigned[index]) {
+            assigned[index] = role as Role;
+          }
+        }
+        setRoles(assigned);
+        setRows(rowsFromGrid(raw, assigned, boq.data_starts_at ?? 0));
+      } else {
+        setRoles([]);
+        // The document as it stands — headings, source entries and positions, in order.
+        setRows(boq.entries?.length ? boq.entries : []);
+      }
     } catch {
       setError("The server could not be reached. Try again in a moment.");
     } finally {
@@ -294,6 +382,68 @@ export default function GaebPage() {
           <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-300">
             {t.verifyNote}
           </p>
+
+          {grid.length > 0 && (
+            <details className="mb-3 rounded-md border border-neutral-200 p-3 dark:border-neutral-800">
+              <summary className="cursor-pointer text-xs text-neutral-500">{t.mapperTitle}</summary>
+              <p className="mt-2 text-xs text-neutral-500">{t.mapperHint}</p>
+              <div className="mt-2 overflow-x-auto">
+                <table className="text-xs">
+                  <thead>
+                    <tr>
+                      {roles.map((role, c) => (
+                        <th key={c} className="p-1 text-left">
+                          <select
+                            value={role}
+                            onChange={(e) => {
+                              const next = [...roles];
+                              next[c] = e.target.value as Role;
+                              setRoles(next);
+                              setRows(rowsFromGrid(grid, next, startAt));
+                            }}
+                            className="rounded border border-neutral-300 bg-transparent px-1 py-0.5 dark:border-neutral-700 dark:bg-neutral-900"
+                          >
+                            <option value="">{t.roleIgnore}</option>
+                            <option value="oz">{t.colKgOz}</option>
+                            <option value="short_text">{t.roleText}</option>
+                            <option value="quantity">{t.colQty}</option>
+                            <option value="teilbetrag">{t.colTeilbetrag}</option>
+                            <option value="total">{t.colTotal}</option>
+                          </select>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {/* The first rows exactly as extracted, so the assignment can be seen to be right. */}
+                    {grid.slice(0, 6).map((row, r) => (
+                      <tr key={r} className="border-t border-neutral-100 dark:border-neutral-900">
+                        {roles.map((_, c) => (
+                          <td key={c} className="max-w-[16rem] truncate p-1 text-neutral-500">
+                            {row[c] ?? ""}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <label className="mt-2 flex items-center gap-2 text-xs text-neutral-500">
+                {t.dataStartsAt}
+                <input
+                  type="number"
+                  min={0}
+                  value={startAt}
+                  onChange={(e) => {
+                    const n = Math.max(0, Number(e.target.value) || 0);
+                    setStartAt(n);
+                    setRows(rowsFromGrid(grid, roles, n));
+                  }}
+                  className="w-16 rounded border border-neutral-300 bg-transparent px-1 py-0.5 dark:border-neutral-700"
+                />
+              </label>
+            </details>
+          )}
 
           {mismatches > 0 && (
             <p className="mb-3 rounded-md bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-950 dark:text-red-300">
