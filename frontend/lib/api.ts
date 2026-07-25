@@ -197,6 +197,9 @@ export type GaebPosition = {
   unit_price: string | null;
   long_text: string | null;
   section: string;
+  /** What the source file printed as this line's total, when it had such a column — read-only
+   *  evidence to check our own Qty × UP against. Never sent back on export. */
+  source_total?: string | null;
 };
 
 export type GaebBoQ = {

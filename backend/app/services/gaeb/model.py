@@ -35,6 +35,10 @@ class Position:
     quantity: Decimal
     unit: str
     unit_price: Decimal | None = None
+    # What the SOURCE file printed as this line's total, when it carried such a column. Never
+    # exported — a .x84 derives the total from Qty × UP — but kept as evidence: comparing it with
+    # `item_total` is how a mis-read column is caught instead of quietly becoming a wrong bid.
+    source_total: Decimal | None = None
     long_text: str | None = None
     # Optional one level of grouping (Titel/Los). Positions with the same section render under one
     # GAEB category; empty means a flat list. Kept a plain label for now — nested hierarchies later.
@@ -46,6 +50,17 @@ class Position:
         if self.unit_price is None:
             return None
         return round_money(self.quantity * self.unit_price)
+
+    @property
+    def disagrees_with_source(self) -> bool:
+        """True when our Qty × UP does not match the total the source file printed for this line.
+
+        The file checks our arithmetic: if the two differ, a column was read wrongly — most often a
+        line total taken for a unit price, which inflates the bid by the quantity. Surfaced rather
+        than silently accepted."""
+        if self.source_total is None or self.item_total is None:
+            return False
+        return abs(self.item_total - self.source_total) > Decimal("0.02")
 
 
 @dataclass(frozen=True)

@@ -23,6 +23,8 @@ type GaebStrings = {
   colPrice: string;
   colSection: string;
   colTotal: string;
+  colFileTotal: string;
+  mismatchWarning: (n: number) => string;
   addRow: string;
   removeRow: string;
   estimated: string;
@@ -50,6 +52,9 @@ const STRINGS: Partial<Record<UiLang, GaebStrings>> & { en: GaebStrings } = {
     colPrice: "Unit price",
     colSection: "Section",
     colTotal: "Total",
+    colFileTotal: "In the file",
+    mismatchWarning: (n) =>
+      `${n} row${n === 1 ? "" : "s"} do not match the total printed in the source file. A column was probably read wrongly — check the quantity and unit price on the rows marked in red before exporting.`,
     addRow: "+ Add position",
     removeRow: "Remove",
     estimated: "Estimated total",
@@ -75,6 +80,9 @@ const STRINGS: Partial<Record<UiLang, GaebStrings>> & { en: GaebStrings } = {
     colPrice: "Einheitspreis",
     colSection: "Titel",
     colTotal: "Gesamt",
+    colFileTotal: "In der Datei",
+    mismatchWarning: (n) =>
+      `${n} Position${n === 1 ? "" : "en"} stimmen nicht mit dem in der Datei ausgewiesenen Gesamtbetrag überein. Vermutlich wurde eine Spalte falsch gelesen — prüfen Sie Menge und Einheitspreis der rot markierten Zeilen vor dem Export.`,
     addRow: "+ Position hinzufügen",
     removeRow: "Entfernen",
     estimated: "Geschätzte Summe",
@@ -100,6 +108,9 @@ const STRINGS: Partial<Record<UiLang, GaebStrings>> & { en: GaebStrings } = {
     colPrice: "ერთ. ფასი",
     colSection: "სექცია",
     colTotal: "ჯამი",
+    colFileTotal: "ფაილში",
+    mismatchWarning: (n) =>
+      `${n} მწკრივი არ ემთხვევა ფაილში მითითებულ ჯამს. სავარაუდოდ სვეტი არასწორად წაიკითხა — ექსპორტამდე შეამოწმე წითლად მონიშნული მწკრივების რაოდენობა და ერთეულის ფასი.`,
     addRow: "+ პოზიციის დამატება",
     removeRow: "წაშლა",
     estimated: "სავარაუდო ჯამი",
@@ -224,6 +235,13 @@ export default function GaebPage() {
     }
   }
 
+  // A row disagrees when our Qty × UP does not match the total the source file printed for it.
+  function mismatched(p: GaebPosition): boolean {
+    if (!p.source_total) return false;
+    return Math.abs(toNumber(p.quantity) * toNumber(p.unit_price) - toNumber(p.source_total)) > 0.02;
+  }
+  const mismatches = (positions ?? []).filter(mismatched).length;
+
   const total = (positions ?? []).reduce(
     (sum, p) => sum + toNumber(p.quantity) * toNumber(p.unit_price),
     0,
@@ -281,6 +299,12 @@ export default function GaebPage() {
             {t.verifyNote}
           </p>
 
+          {mismatches > 0 && (
+            <p className="mb-3 rounded-md bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-950 dark:text-red-300">
+              {t.mismatchWarning(mismatches)}
+            </p>
+          )}
+
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-sm">
               <thead>
@@ -292,6 +316,7 @@ export default function GaebPage() {
                   <th className="py-2 pr-2">{t.colPrice}</th>
                   <th className="py-2 pr-2">{t.colSection}</th>
                   <th className="py-2 pr-2 text-right">{t.colTotal}</th>
+                  <th className="py-2 pr-2 text-right">{t.colFileTotal}</th>
                   <th className="py-2" />
                 </tr>
               </thead>
@@ -327,8 +352,15 @@ export default function GaebPage() {
                     <td className="py-1 pr-2">
                       <input value={p.section} onChange={(e) => update(i, "section", e.target.value)} className="w-28 rounded border border-neutral-200 bg-transparent px-1 py-0.5 dark:border-neutral-800" />
                     </td>
-                    <td className="py-1 pr-2 text-right tabular-nums text-neutral-500">
+                    <td className={`py-1 pr-2 text-right tabular-nums ${mismatched(p) ? "font-semibold text-red-600 dark:text-red-400" : "text-neutral-500"}`}>
                       {(toNumber(p.quantity) * toNumber(p.unit_price)).toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </td>
+                    {/* The file's own line total, side by side with ours. If the two differ, a
+                        column was read wrongly — better seen than silently exported. */}
+                    <td className={`py-1 pr-2 text-right tabular-nums ${mismatched(p) ? "text-red-600 dark:text-red-400" : "text-neutral-400"}`}>
+                      {p.source_total
+                        ? toNumber(p.source_total).toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                        : "—"}
                     </td>
                     <td className="py-1">
                       <button type="button" onClick={() => removeRow(i)} className="text-xs text-neutral-400 hover:text-red-500">

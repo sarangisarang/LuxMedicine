@@ -208,8 +208,22 @@ def _maybe_decimal(raw: str | None, *, thousands: str | None = None) -> Decimal 
         return None
 
 
+def _numeric_value(value: str | None, thousands: str | None = None) -> Decimal | None:
+    """The number in a cell, including one that carries its unit ("720 m2" -> 720).
+
+    Every place that judges a column — is it numeric? does quantity × price equal the total? — must
+    read a cell the same way the position parser does, or a quantity written as "132 St" looks like
+    no number at all and the check silently passes on nothing.
+    """
+    direct = _maybe_decimal(value, thousands=thousands)
+    if direct is not None or not value:
+        return direct
+    number, unit = _split_quantity_unit(value)
+    return _maybe_decimal(number, thousands=thousands) if unit else None
+
+
 def _is_numeric(value: str, thousands: str | None = None) -> bool:
-    return _maybe_decimal(value, thousands=thousands) is not None
+    return _numeric_value(value, thousands) is not None
 
 
 def _all_cells(rows: list[list[str]]) -> list[str]:
@@ -260,7 +274,7 @@ def _multiplies_out(
     for row in rows:
         values = []
         for idx in (qty, unit_price, total):
-            values.append(_maybe_decimal(row[idx], thousands=thousands) if idx < len(row) else None)
+            values.append(_numeric_value(row[idx], thousands) if idx < len(row) else None)
         q, u, t = values
         if q is None or u is None or t is None or q == 0 or u == 0:
             continue
@@ -341,12 +355,11 @@ def _infer_columns_by_content(rows: list[list[str]]) -> dict[str, int]:
                         continue
                     if _multiplies_out(rows, qty_idx, candidate["idx"], other["idx"], thousands):
                         chosen = candidate["idx"]
-                        mapping["_total"] = other["idx"]  # remembered only to keep it out of the way
+                        mapping["total"] = other["idx"]  # kept: it is the file's own check on us
                         break
                 if chosen is not None:
                     break
         mapping["unit_price"] = chosen if chosen is not None else after[0]["idx"]
-        mapping.pop("_total", None)
 
     # 4. The description is the wordiest non-numeric column that is not already claimed.
     claimed = set(mapping.values())
@@ -391,6 +404,56 @@ def _infer_columns(rows: list[list[str]]) -> dict[str, int]:
     return _infer_columns_by_content(rows)
 
 
+def _agreement(
+    rows: list[list[str]], qty: int, unit_price: int, total: int, thousands: str | None
+) -> float:
+    """Fraction of rows where quantity × unit_price equals the total column."""
+    checked = agreed = 0
+    for row in rows:
+        values = [_numeric_value(row[i], thousands) if i < len(row) else None
+                  for i in (qty, unit_price, total)]
+        q, u, t = values
+        if q is None or u is None or t is None or q == 0:
+            continue
+        checked += 1
+        if abs(q * u - t) <= Decimal("0.02"):
+            agreed += 1
+    return agreed / checked if checked else 0.0
+
+
+def _verify_price_column(
+    rows: list[list[str]], cols: dict[str, int], thousands: str | None
+) -> dict[str, int]:
+    """Check the chosen unit-price column against the file's own total column, and correct it.
+
+    The header is a claim, not evidence. A column labelled "EP" can hold the line total, a PDF's
+    columns can be extracted in an order the labels do not describe, and taking a total for a rate
+    multiplies the whole bid by the quantity — the fault a bidder reported, where our "unit price"
+    turned out to be exactly quantity × the real one. The file settles it: quantity × unit price must
+    equal the total it prints. If the current choice fails that test and another numeric column
+    passes, switch to the column the arithmetic supports.
+    """
+    qty, total = cols.get("quantity"), cols.get("total")
+    if qty is None or total is None or not rows:
+        return cols
+
+    current = cols.get("unit_price")
+    if current is not None and _agreement(rows, qty, current, total, thousands) >= 0.8:
+        return cols  # the file confirms it
+
+    width = max(len(r) for r in rows)
+    best, best_score = current, 0.0
+    for idx in range(width):
+        if idx in (qty, total):
+            continue
+        score = _agreement(rows, qty, idx, total, thousands)
+        if score > best_score:
+            best, best_score = idx, score
+    if best is not None and best_score >= 0.8:
+        cols["unit_price"] = best
+    return cols
+
+
 def _sample(rows: list[list[str]], limit: int = 3) -> str:
     """A short, readable echo of what was actually read — so a failure says what it saw rather than
     only that it failed."""
@@ -426,6 +489,9 @@ def positions_from_rows(
     # One convention for the whole file: "1.180" is 1180 in a German LV and 1.18 in an English one,
     # and the file itself says which it is (see detect_thousands_separator).
     thousands = detect_thousands_separator(_all_cells(rows))
+
+    # Never trust the price column on a label alone — make the file's own totals confirm it.
+    cols = _verify_price_column(rows, cols, thousands)
 
     def cell(row: list[str], field: str) -> str | None:
         idx = cols.get(field)
@@ -468,6 +534,7 @@ def positions_from_rows(
                 quantity=quantity,
                 unit=unit,
                 unit_price=_maybe_decimal(cell(row, "unit_price"), thousands=thousands),
+                source_total=_maybe_decimal(cell(row, "total"), thousands=thousands),
                 long_text=long_text or None,
                 section=section,
             )

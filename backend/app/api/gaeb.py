@@ -46,6 +46,9 @@ class PositionDTO(BaseModel):
     unit_price: str | None = None
     long_text: str | None = None
     section: str = ""
+    # What the source file printed as this line's total, if it had such a column. Read-only evidence
+    # for the verify table — the .x84 always derives its own total from Qty × UP.
+    source_total: str | None = None
 
 
 class BoQDTO(BaseModel):
@@ -84,6 +87,7 @@ def _to_dto(boq: BillOfQuantities) -> BoQDTO:
                 unit_price=None if p.unit_price is None else _fmt(p.unit_price, 2),
                 long_text=p.long_text,
                 section=p.section,
+                source_total=None if p.source_total is None else _fmt(p.source_total, 2),
             )
             for p in boq.positions
         ],

@@ -295,6 +295,42 @@ def test_a_real_german_lv_row_shape():
     assert boq.total == Decimal("47935.40")
 
 
+def test_the_file_s_own_totals_correct_a_wrongly_chosen_price_column():
+    """The reported fault: our "unit price" was exactly quantity × the real one — a line total read
+    as a rate. The file settles it, because quantity × unit price must equal the total it prints.
+    Here the rate column carries no header at all, and the arithmetic still finds it."""
+    csv = (
+        "Pos;Bezeichnung;Menge;Einheit;;Gesamt\n"
+        "1;Beton C25/30;10;m3;125,50;1.255,00\n"
+        "2;Bewehrungsstahl;2,5;t;900,00;2.250,00\n"
+    ).encode("utf-8")
+    boq = read_csv(csv, project_name="x")
+    assert [str(p.unit_price) for p in boq.positions] == ["125.50", "900.00"]
+    assert [str(p.item_total) for p in boq.positions] == ["1255.00", "2250.00"]
+
+
+def test_the_source_total_is_carried_so_a_mismatch_can_be_seen():
+    """Whatever the file printed as the line total travels with the position, so the table can show
+    it beside ours — evidence the user can check, rather than a number to be taken on trust."""
+    csv = (
+        "Pos;Bezeichnung;Menge;Einheit;EP;Gesamt\n"
+        "1;Beton;10;m3;125,50;1.255,00\n"
+    ).encode("utf-8")
+    position = read_csv(csv, project_name="x").positions[0]
+    assert position.source_total == Decimal("1255.00")
+    assert not position.disagrees_with_source
+
+
+def test_a_disagreement_with_the_source_is_flagged():
+    from app.services.gaeb.model import Position
+
+    wrong = Position(
+        oz="1", short_text="x", quantity=Decimal("10"), unit="m3",
+        unit_price=Decimal("1255.00"), source_total=Decimal("1255.00"),
+    )
+    assert wrong.disagrees_with_source  # 10 × 1255 = 12550, not 1255
+
+
 def test_an_english_file_still_reads_a_dot_as_a_decimal_point():
     """The convention is detected per file, so widening German support must not break English input:
     here "2.57" is two and a half, not two hundred and fifty-seven."""
