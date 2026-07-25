@@ -79,6 +79,8 @@ def _item_element(parent: ET.Element, pos: Position) -> None:
 
     if pos.unit_price is not None:
         ET.SubElement(item, _q("UP")).text = _fmt_money(pos.unit_price)
+        # The source file's own total when it printed one — carried over, not recalculated. Only a
+        # file without a total column falls back to Qty × UP (that is `item_total`'s own rule).
         total = pos.item_total
         if total is not None:
             ET.SubElement(item, _q("IT")).text = _fmt_money(total)

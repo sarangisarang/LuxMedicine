@@ -44,9 +44,37 @@ class Position:
     # GAEB category; empty means a flat list. Kept a plain label for now — nested hierarchies later.
     section: str = ""
 
+    # --- DIN 276 cost groups, and the source text -------------------------------------------------
+    # The Kostengruppe this position sits under, outermost first: ("500 Außenanlagen und
+    # Freiflächen", "520 Gründung, Unterbau", "522 Gründungen und Bodenplatten", …) up to the fourth
+    # level. Read from the document's own headings — a position belongs to whichever KG it was
+    # printed beneath.
+    kg: tuple[str, ...] = ()
+    # A partial amount the source prints on the line, when it carries one.
+    teilbetrag: Decimal | None = None
+    # Every value EXACTLY as the source file wrote it. The requirement is that quantities, units,
+    # partial amounts, unit prices and totals are taken over unchanged and displayed — no
+    # calculation, no rounding, no re-formatting. The parsed Decimals above exist only so the .x84
+    # can carry typed values and so a mis-read column can be detected; what a person sees is this.
+    quantity_text: str = ""
+    unit_price_text: str = ""
+    total_text: str = ""
+    teilbetrag_text: str = ""
+
     @property
     def item_total(self) -> Decimal | None:
-        """IT = Qty × UP, rounded to the cent. None when the position is unpriced."""
+        """The line total. The source file's own figure when it printed one — taken over, never
+        recomputed — and Qty × UP only as a fallback for a file that carries no total column."""
+        if self.source_total is not None:
+            return self.source_total
+        if self.unit_price is None:
+            return None
+        return round_money(self.quantity * self.unit_price)
+
+    @property
+    def computed_total(self) -> Decimal | None:
+        """Qty × UP. Not shown and not exported — used only to test the source's figure against the
+        columns we read, which is how a mis-assigned price column is caught."""
         if self.unit_price is None:
             return None
         return round_money(self.quantity * self.unit_price)
@@ -58,9 +86,9 @@ class Position:
         The file checks our arithmetic: if the two differ, a column was read wrongly — most often a
         line total taken for a unit price, which inflates the bid by the quantity. Surfaced rather
         than silently accepted."""
-        if self.source_total is None or self.item_total is None:
+        if self.source_total is None or self.computed_total is None:
             return False
-        return abs(self.item_total - self.source_total) > Decimal("0.02")
+        return abs(self.computed_total - self.source_total) > Decimal("0.02")
 
 
 @dataclass(frozen=True)

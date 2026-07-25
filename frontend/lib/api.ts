@@ -189,17 +189,21 @@ export async function listDocuments(sector: string, token: string): Promise<Docu
 
 // --- GAEB converter (Baurecht): any LV file -> editable positions -> downloadable .x84 -----------
 
+/** One row of the converter table, in the order the specification asks for:
+ *  KG → KG level 2 → 3 → 4 → Positionsnummer → Leistungstext → Menge → Einheit → Teilbetrag → EP →
+ *  Gesamt EUR. Every value is the string the source file printed — nothing here is computed. */
 export type GaebPosition = {
+  /** The DIN 276 cost-group path this position was printed under, outermost first (up to 4 levels). */
+  kg: string[];
   oz: string;
   short_text: string;
   quantity: string;
   unit: string;
+  teilbetrag: string | null;
   unit_price: string | null;
+  total: string | null;
   long_text: string | null;
   section: string;
-  /** What the source file printed as this line's total, when it had such a column — read-only
-   *  evidence to check our own Qty × UP against. Never sent back on export. */
-  source_total?: string | null;
 };
 
 export type GaebBoQ = {

@@ -46,8 +46,11 @@ async def test_parse_reads_a_csv_into_positions():
         body = r.json()
         assert body["project_name"] == "Halle"
         assert len(body["positions"]) == 2
-        assert body["positions"][0]["short_text"] == "Beton C25/30"
-        assert body["positions"][0]["unit_price"] == "125.50"
+        first = body["positions"][0]
+        assert first["short_text"] == "Beton C25/30"
+        # Verbatim: the price is handed back exactly as the file wrote it ("125,50"), not reformatted.
+        assert first["unit_price"] == "125,50"
+        assert first["quantity"] == "10"
     finally:
         await _clear()
 

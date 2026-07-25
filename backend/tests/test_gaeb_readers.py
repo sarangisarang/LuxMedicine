@@ -331,6 +331,64 @@ def test_a_disagreement_with_the_source_is_flagged():
     assert wrong.disagrees_with_source  # 10 × 1255 = 12550, not 1255
 
 
+def test_din_276_cost_groups_are_read_and_assigned_to_their_positions():
+    """The document's own headings are the structure: 500 → 520 → 522, with every position printed
+    below inheriting the group it belongs to, and a new heading at one level ending the deeper ones.
+    Taken from the reported Freianlagen LV."""
+    csv = (
+        "OZ;Bezeichnung;Menge;EP;Gesamt\n"
+        "500;Außenanlagen und Freiflächen;;;2.218.779,50\n"
+        "520;Gründung, Unterbau;;;13.045,00\n"
+        "522;Gründungen und Bodenplatten;;;13.045,00\n"
+        "1.02.02.03;Stahlplatten als Lastverteilplatten;25 Stk;521,80;13.045,00\n"
+        "530;Oberbau, Deckschichten;;;594.814,10\n"
+        "531;Wege;;;589.369,10\n"
+        "1.03.01.01;Planum Erdbau;720 m2;2,57;1.850,40\n"
+    ).encode("utf-8")
+    boq = read_csv(csv, project_name="Freianlagen")
+
+    assert len(boq.positions) == 2
+    platten, planum = boq.positions
+
+    assert platten.kg == (
+        "500 Außenanlagen und Freiflächen",
+        "520 Gründung, Unterbau",
+        "522 Gründungen und Bodenplatten",
+    )
+    # Entering 530 ends 520's subgroups rather than accumulating them.
+    assert planum.kg == (
+        "500 Außenanlagen und Freiflächen",
+        "530 Oberbau, Deckschichten",
+        "531 Wege",
+    )
+
+
+def test_kg_levels_follow_the_shape_of_the_number():
+    from app.services.gaeb.readers import kg_level
+
+    assert kg_level("500") == 1
+    assert kg_level("520") == 2
+    assert kg_level("522") == 3
+    assert kg_level("522.1") == 4
+    assert kg_level("1.02.02.03") is None  # a position number, not a cost group
+    assert kg_level("900") is None  # DIN 276 stops at 800
+
+
+def test_values_are_taken_over_unchanged_not_recomputed():
+    """The requirement: quantities, units, unit prices and totals come from the source file as they
+    are printed. The line total is the file's own figure — never our multiplication."""
+    csv = (
+        "OZ;Bezeichnung;Menge;EP;Gesamt\n"
+        "1.03.01.01;Planum Erdbau;720 m2;2,57;1.850,40\n"
+    ).encode("utf-8")
+    position = read_csv(csv, project_name="x").positions[0]
+
+    assert position.quantity_text == "720 m2"
+    assert position.unit_price_text == "2,57"
+    assert position.total_text == "1.850,40"
+    assert position.item_total == Decimal("1850.40")  # the file's figure, taken over
+
+
 def test_an_english_file_still_reads_a_dot_as_a_decimal_point():
     """The convention is detected per file, so widening German support must not break English input:
     here "2.57" is two and a half, not two hundred and fifty-seven."""

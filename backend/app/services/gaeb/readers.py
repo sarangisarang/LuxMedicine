@@ -142,6 +142,8 @@ _HEADERS: dict[str, tuple[str, ...]] = {
         "einheitspreis", "einheits-preis", "einzelpreis", "e-preis", "ep", "up", "preis/einheit",
         "preis", "unitprice", "unit price", "netto", "angebotspreis",
     ),
+    # A partial amount printed on the line, distinct from the line total.
+    "teilbetrag": ("teilbetrag", "teil-betrag", "teilsumme", "anteil", "partial"),
     "long_text": ("langtext", "detailtext", "spezifikation", "long text", "zusatztext"),
     "section": ("titel", "los", "gruppe", "gewerk", "abschnitt", "section", "kapitel"),
     # Recognised so it can be kept OUT of unit_price. A .x84 carries the unit price and derives the
@@ -218,7 +220,7 @@ def _numeric_value(value: str | None, thousands: str | None = None) -> Decimal |
     direct = _maybe_decimal(value, thousands=thousands)
     if direct is not None or not value:
         return direct
-    number, unit = _split_quantity_unit(value)
+    number, unit = split_quantity_unit(value)
     return _maybe_decimal(number, thousands=thousands) if unit else None
 
 
@@ -239,7 +241,7 @@ def _all_cells(rows: list[list[str]]) -> list[str]:
 _QTY_WITH_UNIT = re.compile(r"^([\d.,]+)\s+(\S{1,6})$")
 
 
-def _split_quantity_unit(text: str) -> tuple[str, str]:
+def split_quantity_unit(text: str) -> tuple[str, str]:
     """Split "720 m2" into ("720", "m2"). Only when the trailing token really is a unit — otherwise
     the text is returned untouched, so "1.180" or "12a" is never silently truncated."""
     match = _QTY_WITH_UNIT.match((text or "").strip())
@@ -404,6 +406,44 @@ def _infer_columns(rows: list[list[str]]) -> dict[str, int]:
     return _infer_columns_by_content(rows)
 
 
+# DIN 276 (2018-12) cost groups. The first level is a hundred — 100 Grundstück … 800 Finanzierung —
+# the second a ten (520), the third a unit (522), and a fourth may be appended (522.1 / 522-1).
+_KG_NUMBER = re.compile(r"^([1-8])(\d)(\d)(?:[.\-/](\d+))?$")
+
+
+def kg_level(number: str) -> int | None:
+    """Which level of the DIN 276 hierarchy this number sits at, or None if it is not a cost group.
+
+    100 → 1, 520 → 2, 522 → 3, 522.1 → 4. The shape of the number IS the level, which is what lets a
+    document's own headings be read as a hierarchy without being told the depth in advance.
+    """
+    match = _KG_NUMBER.match((number or "").strip())
+    if not match:
+        return None
+    _, tens, units, fourth = match.groups()
+    if fourth:
+        return 4
+    if units != "0":
+        return 3
+    if tens != "0":
+        return 2
+    return 1
+
+
+def _update_kg_stack(stack: list[str], number: str, label: str) -> list[str]:
+    """Place a heading at its level and drop anything deeper — entering "530 Oberbau" ends the
+    subgroups of 520. Returns a new list so each position can keep the path it was printed under."""
+    level = kg_level(number)
+    if level is None:
+        return stack
+    heading = f"{number} {label}".strip()
+    updated = stack[: level - 1]
+    while len(updated) < level - 1:
+        updated.append("")  # a level the document skipped
+    updated.append(heading)
+    return updated
+
+
 def _agreement(
     rows: list[list[str]], qty: int, unit_price: int, total: int, thousands: str | None
 ) -> float:
@@ -501,6 +541,7 @@ def positions_from_rows(
 
     positions: list[Position] = []
     continuations: list[list[str]] = []  # extra description lines belonging to positions[-1]
+    kg_stack: list[str] = []  # the DIN 276 headings this part of the document sits under
     for n, row in enumerate(rows, start=1):
         desc = (cell(row, "short_text") or "").strip()
         qty_raw = cell(row, "quantity")
@@ -510,17 +551,21 @@ def positions_from_rows(
         # "720 m2" in one cell: separate the unit rather than lose the whole row.
         split_unit = ""
         if quantity is None and qty_raw:
-            number, split_unit = _split_quantity_unit(qty_raw)
+            number, split_unit = split_quantity_unit(qty_raw)
             quantity = _maybe_decimal(number, thousands=thousands) if split_unit else None
         oz = (cell(row, "oz") or "").strip()
 
         if quantity is None:
-            # No quantity: this row is not a position of its own. It is either a heading (which
-            # carries its own OZ) or — the case that was silently losing text — a CONTINUATION of the
-            # position above it. A German LV wraps the Langtext over several lines, and that is where
-            # the DIN references and the technical qualifiers live. Dropping them threw away exactly
-            # the part a bidder must read.
-            if desc and not oz and positions:
+            # No quantity: this row is not a position of its own. Three cases, and telling them
+            # apart is what builds the structure:
+            #   * a DIN 276 cost-group heading ("520  Gründung, Unterbau") — remembered, so every
+            #     position printed below it inherits the group it belongs to;
+            #   * a CONTINUATION of the position above (no number of its own), which is where a
+            #     German LV wraps its Langtext and prints the DIN references;
+            #   * any other heading, which is simply skipped.
+            if kg_level(oz) is not None:
+                kg_stack = _update_kg_stack(kg_stack, oz, desc)
+            elif desc and not oz and positions:
                 continuations[-1].append(desc)
             continue
 
@@ -535,8 +580,16 @@ def positions_from_rows(
                 unit=unit,
                 unit_price=_maybe_decimal(cell(row, "unit_price"), thousands=thousands),
                 source_total=_maybe_decimal(cell(row, "total"), thousands=thousands),
+                teilbetrag=_maybe_decimal(cell(row, "teilbetrag"), thousands=thousands),
                 long_text=long_text or None,
-                section=section,
+                section=section or (kg_stack[-1] if kg_stack else ""),
+                kg=tuple(kg_stack),
+                # Kept exactly as printed — the requirement is that these are taken over unchanged,
+                # so what the table shows is the source's own text, not our re-rendering of it.
+                quantity_text=(qty_raw or "").strip(),
+                unit_price_text=(cell(row, "unit_price") or "").strip(),
+                total_text=(cell(row, "total") or "").strip(),
+                teilbetrag_text=(cell(row, "teilbetrag") or "").strip(),
             )
         )
         continuations.append([])

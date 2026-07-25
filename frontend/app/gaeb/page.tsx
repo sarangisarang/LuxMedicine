@@ -16,18 +16,21 @@ type GaebStrings = {
   convert: string;
   converting: string;
   verifyNote: string;
+  colKg1: string;
+  colKg2: string;
+  colKg3: string;
+  colKg4: string;
   colOz: string;
   colText: string;
   colQty: string;
   colUnit: string;
   colPrice: string;
-  colSection: string;
+  colTeilbetrag: string;
   colTotal: string;
-  colFileTotal: string;
   mismatchWarning: (n: number) => string;
   addRow: string;
   removeRow: string;
-  estimated: string;
+  noSumNote: string;
   export: string;
   exporting: string;
   needFile: string;
@@ -45,19 +48,22 @@ const STRINGS: Partial<Record<UiLang, GaebStrings>> & { en: GaebStrings } = {
     converting: "Reading…",
     verifyNote:
       "Verify every position and unit price before you export — a wrong price in a bid is real money. Nothing is exported that you have not confirmed.",
-    colOz: "OZ",
-    colText: "Description",
+    colKg1: "KG",
+    colKg2: "KG level 2",
+    colKg3: "KG level 3",
+    colKg4: "KG level 4",
+    colOz: "Position no.",
+    colText: "Leistungstext",
     colQty: "Qty",
     colUnit: "Unit",
     colPrice: "Unit price",
-    colSection: "Section",
-    colTotal: "Total",
-    colFileTotal: "In the file",
+    colTeilbetrag: "Partial amount",
+    colTotal: "Total EUR",
     mismatchWarning: (n) =>
       `${n} row${n === 1 ? "" : "s"} do not match the total printed in the source file. A column was probably read wrongly — check the quantity and unit price on the rows marked in red before exporting.`,
     addRow: "+ Add position",
     removeRow: "Remove",
-    estimated: "Estimated total",
+    noSumNote: "All values are taken from the source file unchanged. Nothing is calculated, summed or adjusted here.",
     export: "Export .x84",
     exporting: "Generating…",
     needFile: "Choose an LV file (Excel, CSV, or GAEB) first.",
@@ -73,19 +79,22 @@ const STRINGS: Partial<Record<UiLang, GaebStrings>> & { en: GaebStrings } = {
     converting: "Wird eingelesen…",
     verifyNote:
       "Prüfen Sie jede Position und jeden Einheitspreis vor dem Export — ein falscher Preis im Angebot ist echtes Geld. Es wird nichts exportiert, was Sie nicht bestätigt haben.",
-    colOz: "OZ",
-    colText: "Bezeichnung",
+    colKg1: "KG",
+    colKg2: "KG-Ebene 2",
+    colKg3: "KG-Ebene 3",
+    colKg4: "KG-Ebene 4",
+    colOz: "Positionsnummer",
+    colText: "Leistungstext",
     colQty: "Menge",
     colUnit: "Einheit",
     colPrice: "Einheitspreis",
-    colSection: "Titel",
-    colTotal: "Gesamt",
-    colFileTotal: "In der Datei",
+    colTeilbetrag: "Teilbetrag",
+    colTotal: "Gesamt EUR",
     mismatchWarning: (n) =>
       `${n} Position${n === 1 ? "" : "en"} stimmen nicht mit dem in der Datei ausgewiesenen Gesamtbetrag überein. Vermutlich wurde eine Spalte falsch gelesen — prüfen Sie Menge und Einheitspreis der rot markierten Zeilen vor dem Export.`,
     addRow: "+ Position hinzufügen",
     removeRow: "Entfernen",
-    estimated: "Geschätzte Summe",
+    noSumNote: "Sämtliche Werte werden unverändert aus der Quelldatei übernommen. Es werden hier keine Berechnungen, Summierungen oder Mengenanpassungen durchgeführt.",
     export: ".x84 exportieren",
     exporting: "Wird erzeugt…",
     needFile: "Wählen Sie zuerst eine LV-Datei (Excel, CSV oder GAEB).",
@@ -101,19 +110,22 @@ const STRINGS: Partial<Record<UiLang, GaebStrings>> & { en: GaebStrings } = {
     converting: "იკითხება…",
     verifyNote:
       "ექსპორტამდე შეამოწმე ყოველი პოზიცია და ერთეულის ფასი — არასწორი ფასი ბიდში რეალური ფულია. არაფერი ექსპორტდება, რაც არ დაგიდასტურებია.",
-    colOz: "OZ",
-    colText: "აღწერა",
+    colKg1: "KG",
+    colKg2: "KG დონე 2",
+    colKg3: "KG დონე 3",
+    colKg4: "KG დონე 4",
+    colOz: "პოზიციის ნომერი",
+    colText: "სამუშაოს ტექსტი",
     colQty: "რაოდ.",
     colUnit: "ერთ.",
     colPrice: "ერთ. ფასი",
-    colSection: "სექცია",
-    colTotal: "ჯამი",
-    colFileTotal: "ფაილში",
+    colTeilbetrag: "ნაწილობრივი თანხა",
+    colTotal: "ჯამი EUR",
     mismatchWarning: (n) =>
       `${n} მწკრივი არ ემთხვევა ფაილში მითითებულ ჯამს. სავარაუდოდ სვეტი არასწორად წაიკითხა — ექსპორტამდე შეამოწმე წითლად მონიშნული მწკრივების რაოდენობა და ერთეულის ფასი.`,
     addRow: "+ პოზიციის დამატება",
     removeRow: "წაშლა",
-    estimated: "სავარაუდო ჯამი",
+    noSumNote: "ყველა მნიშვნელობა უცვლელად არის აღებული წყარო-ფაილიდან. აქ არაფერი ითვლება, ჯამდება ან სწორდება.",
     export: ".x84 ექსპორტი",
     exporting: "იქმნება…",
     needFile: "ჯერ აირჩიე LV ფაილი (Excel, CSV ან GAEB).",
@@ -122,11 +134,14 @@ const STRINGS: Partial<Record<UiLang, GaebStrings>> & { en: GaebStrings } = {
 };
 
 const EMPTY: GaebPosition = {
+  kg: [],
   oz: "",
   short_text: "",
   quantity: "",
   unit: "",
+  teilbetrag: null,
   unit_price: "",
+  total: null,
   long_text: null,
   section: "",
 };
@@ -235,17 +250,14 @@ export default function GaebPage() {
     }
   }
 
-  // A row disagrees when our Qty × UP does not match the total the source file printed for it.
+  // Quantity × unit price is never displayed or exported — the file's own figures are. It is
+  // computed here for one purpose: if it disagrees with the total the file printed, a column was
+  // read wrongly, and the row is marked so a person looks at it.
   function mismatched(p: GaebPosition): boolean {
-    if (!p.source_total) return false;
-    return Math.abs(toNumber(p.quantity) * toNumber(p.unit_price) - toNumber(p.source_total)) > 0.02;
+    if (!p.total) return false;
+    return Math.abs(toNumber(p.quantity) * toNumber(p.unit_price) - toNumber(p.total)) > 0.02;
   }
   const mismatches = (positions ?? []).filter(mismatched).length;
-
-  const total = (positions ?? []).reduce(
-    (sum, p) => sum + toNumber(p.quantity) * toNumber(p.unit_price),
-    0,
-  );
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-8">
@@ -308,23 +320,37 @@ export default function GaebPage() {
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-sm">
               <thead>
+                {/* The order the specification requires: KG -> KG 2 -> KG 3 -> KG 4 ->
+                    Positionsnummer -> Leistungstext -> Menge -> Einheit -> Teilbetrag -> EP ->
+                    Gesamt EUR. */}
                 <tr className="border-b border-neutral-200 text-left text-xs text-neutral-500 dark:border-neutral-800">
+                  <th className="py-2 pr-2">{t.colKg1}</th>
+                  <th className="py-2 pr-2">{t.colKg2}</th>
+                  <th className="py-2 pr-2">{t.colKg3}</th>
+                  <th className="py-2 pr-2">{t.colKg4}</th>
                   <th className="py-2 pr-2">{t.colOz}</th>
                   <th className="py-2 pr-2">{t.colText}</th>
-                  <th className="py-2 pr-2">{t.colQty}</th>
+                  <th className="py-2 pr-2 text-right">{t.colQty}</th>
                   <th className="py-2 pr-2">{t.colUnit}</th>
-                  <th className="py-2 pr-2">{t.colPrice}</th>
-                  <th className="py-2 pr-2">{t.colSection}</th>
+                  <th className="py-2 pr-2 text-right">{t.colTeilbetrag}</th>
+                  <th className="py-2 pr-2 text-right">{t.colPrice}</th>
                   <th className="py-2 pr-2 text-right">{t.colTotal}</th>
-                  <th className="py-2 pr-2 text-right">{t.colFileTotal}</th>
                   <th className="py-2" />
                 </tr>
               </thead>
               <tbody>
                 {positions.map((p, i) => (
-                  <tr key={i} className="border-b border-neutral-100 dark:border-neutral-900">
+                  <tr key={i} className="border-b border-neutral-100 align-top dark:border-neutral-900">
+                    {/* The DIN 276 path this position was printed under, read from the document's
+                        own headings. Shown as it stood there and not editable — it is a fact about
+                        the source, not a field of ours. */}
+                    {[0, 1, 2, 3].map((level) => (
+                      <td key={level} className="py-1 pr-2 text-xs text-neutral-500">
+                        {p.kg?.[level] ?? ""}
+                      </td>
+                    ))}
                     <td className="py-1 pr-2">
-                      <input value={p.oz} onChange={(e) => update(i, "oz", e.target.value)} className="w-20 rounded border border-neutral-200 bg-transparent px-1 py-0.5 dark:border-neutral-800" />
+                      <input value={p.oz} onChange={(e) => update(i, "oz", e.target.value)} className="w-24 rounded border border-neutral-200 bg-transparent px-1 py-0.5 dark:border-neutral-800" />
                     </td>
                     <td className="py-1 pr-2">
                       <input value={p.short_text} onChange={(e) => update(i, "short_text", e.target.value)} className="w-full min-w-[14rem] rounded border border-neutral-200 bg-transparent px-1 py-0.5 dark:border-neutral-800" />
@@ -340,27 +366,23 @@ export default function GaebPage() {
                         />
                       )}
                     </td>
+                    {/* Menge, Einheit, Teilbetrag, EP and Gesamt exactly as the source printed
+                        them. Editable, so a person can correct a mis-read cell — but never
+                        recalculated by us. */}
                     <td className="py-1 pr-2">
-                      <input value={p.quantity} onChange={(e) => update(i, "quantity", e.target.value)} className="w-16 rounded border border-neutral-200 bg-transparent px-1 py-0.5 text-right dark:border-neutral-800" />
+                      <input value={p.quantity} onChange={(e) => update(i, "quantity", e.target.value)} className="w-20 rounded border border-neutral-200 bg-transparent px-1 py-0.5 text-right dark:border-neutral-800" />
                     </td>
                     <td className="py-1 pr-2">
                       <input value={p.unit} onChange={(e) => update(i, "unit", e.target.value)} className="w-14 rounded border border-neutral-200 bg-transparent px-1 py-0.5 dark:border-neutral-800" />
                     </td>
                     <td className="py-1 pr-2">
-                      <input value={p.unit_price ?? ""} onChange={(e) => update(i, "unit_price", e.target.value)} className="w-20 rounded border border-neutral-200 bg-transparent px-1 py-0.5 text-right dark:border-neutral-800" />
+                      <input value={p.teilbetrag ?? ""} onChange={(e) => update(i, "teilbetrag", e.target.value)} className="w-24 rounded border border-neutral-200 bg-transparent px-1 py-0.5 text-right dark:border-neutral-800" />
                     </td>
                     <td className="py-1 pr-2">
-                      <input value={p.section} onChange={(e) => update(i, "section", e.target.value)} className="w-28 rounded border border-neutral-200 bg-transparent px-1 py-0.5 dark:border-neutral-800" />
+                      <input value={p.unit_price ?? ""} onChange={(e) => update(i, "unit_price", e.target.value)} className="w-24 rounded border border-neutral-200 bg-transparent px-1 py-0.5 text-right dark:border-neutral-800" />
                     </td>
-                    <td className={`py-1 pr-2 text-right tabular-nums ${mismatched(p) ? "font-semibold text-red-600 dark:text-red-400" : "text-neutral-500"}`}>
-                      {(toNumber(p.quantity) * toNumber(p.unit_price)).toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </td>
-                    {/* The file's own line total, side by side with ours. If the two differ, a
-                        column was read wrongly — better seen than silently exported. */}
-                    <td className={`py-1 pr-2 text-right tabular-nums ${mismatched(p) ? "text-red-600 dark:text-red-400" : "text-neutral-400"}`}>
-                      {p.source_total
-                        ? toNumber(p.source_total).toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                        : "—"}
+                    <td className={`py-1 pr-2 ${mismatched(p) ? "rounded bg-red-50 dark:bg-red-950" : ""}`}>
+                      <input value={p.total ?? ""} onChange={(e) => update(i, "total", e.target.value)} className="w-28 rounded border border-neutral-200 bg-transparent px-1 py-0.5 text-right dark:border-neutral-800" />
                     </td>
                     <td className="py-1">
                       <button type="button" onClick={() => removeRow(i)} className="text-xs text-neutral-400 hover:text-red-500">
@@ -377,12 +399,7 @@ export default function GaebPage() {
             <button type="button" onClick={addRow} className="text-sm text-neutral-500 underline">
               {t.addRow}
             </button>
-            <p className="text-sm text-neutral-600 dark:text-neutral-300">
-              {t.estimated}:{" "}
-              <span className="font-semibold tabular-nums">
-                {total.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
-              </span>
-            </p>
+            <p className="text-xs text-neutral-400">{t.noSumNote}</p>
           </div>
 
           <button

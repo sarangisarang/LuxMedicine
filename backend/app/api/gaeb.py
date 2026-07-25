@@ -24,8 +24,10 @@ from app.services.gaeb.readers import (
     NoPositionsError,
     UnreadableFileError,
     UnsupportedFormatError,
+    detect_thousands_separator,
     parse_decimal,
     read_any,
+    split_quantity_unit,
 )
 from app.services.gaeb.writer import UnpricedOfferError, write_x84
 
@@ -35,20 +37,25 @@ MAX_UPLOAD = 25 * 1024 * 1024  # a spreadsheet or GAEB file is small; a 25 MB ca
 
 
 class PositionDTO(BaseModel):
-    """Numbers travel as strings, not floats: the client edits them in text fields and a bid total is
-    money, so the server parses them with `Decimal` (German or English notation) rather than trusting
-    a float across the wire."""
+    """One row of the table, in the order the specification asks for:
+    KG → KG level 2 → 3 → 4 → Positionsnummer → Leistungstext → Menge → Einheit → Teilbetrag → EP →
+    Gesamt EUR.
 
+    Every value travels as the STRING the source file printed. Nothing here is computed: quantities,
+    units, partial amounts, unit prices and totals are taken over unchanged, which is both the
+    requirement and the only way the table can be checked against the document it came from."""
+
+    # The DIN 276 cost-group path this position was printed under, outermost first (up to 4 levels).
+    kg: list[str] = Field(default_factory=list)
     oz: str = ""
     short_text: str = ""
     quantity: str = ""
     unit: str = ""
+    teilbetrag: str | None = None
     unit_price: str | None = None
+    total: str | None = None
     long_text: str | None = None
     section: str = ""
-    # What the source file printed as this line's total, if it had such a column. Read-only evidence
-    # for the verify table — the .x84 always derives its own total from Qty × UP.
-    source_total: str | None = None
 
 
 class BoQDTO(BaseModel):
@@ -80,14 +87,18 @@ def _to_dto(boq: BillOfQuantities) -> BoQDTO:
         currency=boq.currency,
         positions=[
             PositionDTO(
+                kg=list(p.kg),
                 oz=p.oz,
                 short_text=p.short_text,
-                quantity=_fmt_quantity(p.quantity),
+                # The source's own text wherever it exists; a formatted value only for an input that
+                # carries none (a GAEB import, whose numbers are already typed).
+                quantity=p.quantity_text or _fmt_quantity(p.quantity),
                 unit=p.unit,
-                unit_price=None if p.unit_price is None else _fmt(p.unit_price, 2),
+                teilbetrag=p.teilbetrag_text or (None if p.teilbetrag is None else _fmt(p.teilbetrag, 2)),
+                unit_price=p.unit_price_text or (None if p.unit_price is None else _fmt(p.unit_price, 2)),
+                total=p.total_text or (None if p.source_total is None else _fmt(p.source_total, 2)),
                 long_text=p.long_text,
                 section=p.section,
-                source_total=None if p.source_total is None else _fmt(p.source_total, 2),
             )
             for p in boq.positions
         ],
@@ -95,13 +106,24 @@ def _to_dto(boq: BillOfQuantities) -> BoQDTO:
 
 
 def _from_dto(dto: BoQDTO) -> BillOfQuantities:
+    # The table holds the source file's own text, so it is read back with the same convention the
+    # file was written in — "1.180" is 1180 in a German document — and a quantity may still carry
+    # its unit ("720 m2"). The values themselves are never recomputed; they are only typed so the
+    # .x84 can carry them.
+    thousands = detect_thousands_separator(
+        [t for p in dto.positions for t in (p.quantity, p.unit_price or "", p.total or "")]
+    )
+
     positions: list[Position] = []
     for i, p in enumerate(dto.positions, start=1):
         if not p.short_text.strip() and not p.quantity.strip():
             continue  # a blank row the user left in the table
+        quantity_text, split_unit = split_quantity_unit(p.quantity)
         try:
-            quantity = parse_decimal(p.quantity)
-            unit_price = parse_decimal(p.unit_price)
+            quantity = parse_decimal(quantity_text, thousands=thousands)
+            unit_price = parse_decimal(p.unit_price, thousands=thousands)
+            source_total = parse_decimal(p.total, thousands=thousands)
+            teilbetrag = parse_decimal(p.teilbetrag, thousands=thousands)
         except UnreadableFileError as exc:
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -112,10 +134,13 @@ def _from_dto(dto: BoQDTO) -> BillOfQuantities:
                 oz=p.oz.strip() or f"{i * 10:04d}",
                 short_text=p.short_text.strip(),
                 quantity=quantity if quantity is not None else Decimal(0),
-                unit=p.unit.strip(),
+                unit=p.unit.strip() or split_unit,
                 unit_price=unit_price,
+                source_total=source_total,
+                teilbetrag=teilbetrag,
                 long_text=(p.long_text or "").strip() or None,
                 section=p.section.strip(),
+                kg=tuple(p.kg),
             )
         )
     return BillOfQuantities(
