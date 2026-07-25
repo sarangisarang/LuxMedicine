@@ -186,3 +186,39 @@ export async function listDocuments(sector: string, token: string): Promise<Docu
   }
   return (await response.json()) as DocumentList;
 }
+
+// --- GAEB converter (Baurecht): any LV file -> editable positions -> downloadable .x84 -----------
+
+export type GaebPosition = {
+  oz: string;
+  short_text: string;
+  quantity: string;
+  unit: string;
+  unit_price: string | null;
+  long_text: string | null;
+  section: string;
+};
+
+export type GaebBoQ = {
+  project_name: string;
+  currency: string;
+  positions: GaebPosition[];
+};
+
+/**
+ * POST /gaeb/parse — read an uploaded LV (Excel, CSV, or an existing GAEB file) into positions the
+ * user then verifies and prices. Multipart, so the Content-Type is left unset for fetch to write the
+ * boundary. Nothing is exported here; that is the explicit second step.
+ */
+export async function parseGaeb(form: FormData, token: string): Promise<GaebBoQ> {
+  const response = await fetch(`${API_URL}/gaeb/parse`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new ApiError(response.status, await response.text());
+  }
+  return (await response.json()) as GaebBoQ;
+}

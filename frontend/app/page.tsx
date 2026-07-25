@@ -88,11 +88,17 @@ export default function Home() {
           <div className="mx-auto max-w-3xl">
             <div className="flex items-baseline justify-between">
               <h1 className="text-xl font-semibold tracking-tight">LuxMedicine</h1>
-              {/* A full server round-trip, not a client call: /auth/logout ends the Keycloak
-                  session too, so signing out is a real logout, not a dropped cookie. */}
-              <a href="/auth/logout" className="text-xs text-neutral-500 underline">
-                {t.signOut}
-              </a>
+              <div className="flex items-center gap-4">
+                {/* The Baurecht-side GAEB converter — a separate tool behind the same login. */}
+                <a href="/gaeb" className="text-xs text-neutral-500 underline">
+                  GAEB .x84
+                </a>
+                {/* A full server round-trip, not a client call: /auth/logout ends the Keycloak
+                    session too, so signing out is a real logout, not a dropped cookie. */}
+                <a href="/auth/logout" className="text-xs text-neutral-500 underline">
+                  {t.signOut}
+                </a>
+              </div>
             </div>
             <p className="mt-1 text-sm text-neutral-500">{t.tagline}</p>
 

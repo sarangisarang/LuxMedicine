@@ -242,28 +242,24 @@ export function CorpusUpload({ lang }: { lang: UiLang }) {
           <p className="text-xs text-neutral-500">{t.hint}</p>
 
           <form onSubmit={submit} className="mt-4 space-y-3">
-            <div>
-              {/* The input is visually hidden, not removed: it still holds the chosen files and stays
-                  keyboard-reachable. The button beside it is ours, so its label is translated. */}
-              <input
-                ref={attachFolderInput}
-                type="file"
-                multiple
-                onChange={(e) => setChosen(pdfsFrom(e.target.files).length)}
-                className="sr-only"
-              />
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => inputRef.current?.click()}
-                  className="rounded-md border border-neutral-300 bg-neutral-100 px-3 py-1.5 text-sm dark:border-neutral-700 dark:bg-neutral-800"
-                >
-                  {t.folder}
-                </button>
-                <span className="text-xs text-neutral-500">
-                  {chosen > 0 ? t.chosen(chosen) : noneSelected}
-                </span>
-              </div>
+            <div className="flex items-center gap-3">
+              {/* A <label> wrapping the input opens the picker natively on click — no JS `.click()`,
+                  which is the reliable way to drive a visually-hidden file input across browsers. The
+                  input still holds the files and stays keyboard-reachable; the label text is ours, so
+                  it translates (unlike the browser's native file-button, which does not). */}
+              <label className="cursor-pointer rounded-md border border-neutral-300 bg-neutral-100 px-3 py-1.5 text-sm dark:border-neutral-700 dark:bg-neutral-800">
+                {t.folder}
+                <input
+                  ref={attachFolderInput}
+                  type="file"
+                  multiple
+                  onChange={(e) => setChosen(pdfsFrom(e.target.files).length)}
+                  className="sr-only"
+                />
+              </label>
+              <span className="text-xs text-neutral-500">
+                {chosen > 0 ? t.chosen(chosen) : noneSelected}
+              </span>
             </div>
 
             <div className="flex flex-wrap gap-3">
