@@ -92,13 +92,42 @@ class Position:
 
 
 @dataclass(frozen=True)
+class Entry:
+    """One ROW of the source document, exactly as it stood there.
+
+    The converted view has to be the document, not a filtered version of it: a Kostenberechnung is
+    cost-group headings, source entries ("1  LV Freiflächen") and positions interleaved, and each
+    carries figures of its own. Keeping only the positions threw away the group totals and the
+    structure they belong to. So every row is carried across verbatim, with `kind` recording what the
+    row is, and nothing is summed — the amounts here are the ones the file printed.
+
+    The fields mirror the source's own columns: KG/OZ, DIN 276 / Quelleinträge, Menge/Einheit,
+    Teilbetrag / EP, Gesamt EUR.
+    """
+
+    kind: str  # "kg" (a DIN 276 heading), "entry" (a Quelleintrag), or "position"
+    number: str  # the KG number, the source entry's number, or the Ordnungszahl
+    text: str
+    menge_einheit: str = ""
+    teilbetrag_ep: str = ""
+    gesamt: str = ""
+    level: int = 0  # the DIN 276 level for a "kg" row; 0 otherwise
+    kg: tuple[str, ...] = ()  # the cost-group path this row sits under
+    long_text: str | None = None
+
+
+@dataclass(frozen=True)
 class BillOfQuantities:
-    """A whole LV: project label, currency, and the positions in order."""
+    """A whole LV: project label, currency, the positions, and — for display — every row of the
+    source document in the order it was printed."""
 
     project_name: str
     positions: tuple[Position, ...] = field(default_factory=tuple)
     currency: str = "EUR"
     name: str = ""
+    # The document as it stands: headings, source entries and positions interleaved. `positions` is
+    # what the .x84 exports; `entries` is what a person is shown, and it is the whole file.
+    entries: tuple[Entry, ...] = field(default_factory=tuple)
 
     @property
     def is_priced(self) -> bool:

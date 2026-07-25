@@ -24,7 +24,7 @@ import docx
 import openpyxl
 import pdfplumber
 
-from app.services.gaeb.model import BillOfQuantities, Position
+from app.services.gaeb.model import BillOfQuantities, Entry, Position
 
 
 class UnreadableFileError(ValueError):
@@ -125,11 +125,17 @@ _HEADERS: dict[str, tuple[str, ...]] = {
     "oz": (
         "oz", "o.z", "ordnungszahl", "positionsnummer", "positions-nr", "pos.-nr", "pos-nr",
         "pos.nr", "position", "pos", "nummer", "nr", "lfd", "item", "no.", "no",
+        # A Kostenberechnung heads this column with both meanings at once, because it holds cost
+        # group numbers and position numbers in the same column.
+        "kg / oz", "kg/oz", "kg oz", "oz / kg", "kg",
     ),
     "short_text": (
         "kurztext", "bezeichnung", "beschreibung", "leistungsbeschreibung", "leistung",
         "leistungstext", "positionstext", "artikel", "benennung", "text", "description",
         "title", "gegenstand",
+        # "DIN 276 (2018-12) / Quelleinträge" — the column that carries group labels and
+        # Leistungstexte together.
+        "din 276", "din276", "din", "quelleinträge", "quelleintrag", "quelleintraege",
     ),
     "quantity": (
         "menge", "mengenansatz", "vordersatz", "anzahl", "stück", "stueck", "qty", "quantity",
@@ -503,7 +509,7 @@ def _sample(rows: list[list[str]], limit: int = 3) -> str:
 
 def positions_from_rows(
     header: list[str], rows: list[list[str]], *, columns: dict[str, int] | None = None
-) -> list[Position]:
+) -> tuple[list[Position], list[Entry]]:
     """Turn a header + data rows into positions. The header decides the columns; anything it does not
     label is inferred from the data (`_infer_columns_by_content`). Pass `columns` to supply the
     mapping outright, for a file with no header row at all. The position number is generated if the
@@ -540,12 +546,15 @@ def positions_from_rows(
         return row[idx]
 
     positions: list[Position] = []
+    entries: list[Entry] = []
     continuations: list[list[str]] = []  # extra description lines belonging to positions[-1]
     kg_stack: list[str] = []  # the DIN 276 headings this part of the document sits under
     for n, row in enumerate(rows, start=1):
         desc = (cell(row, "short_text") or "").strip()
         qty_raw = cell(row, "quantity")
-        if not desc and not (qty_raw and qty_raw.strip()):
+        amount_raw = (cell(row, "teilbetrag") or cell(row, "unit_price") or "").strip()
+        total_raw = (cell(row, "total") or "").strip()
+        if not desc and not (qty_raw and qty_raw.strip()) and not total_raw:
             continue  # a blank or separator row
         quantity = _maybe_decimal(qty_raw, thousands=thousands)
         # "720 m2" in one cell: separate the unit rather than lose the whole row.
@@ -556,18 +565,35 @@ def positions_from_rows(
         oz = (cell(row, "oz") or "").strip()
 
         if quantity is None:
-            # No quantity: this row is not a position of its own. Three cases, and telling them
-            # apart is what builds the structure:
-            #   * a DIN 276 cost-group heading ("520  Gründung, Unterbau") — remembered, so every
-            #     position printed below it inherits the group it belongs to;
+            # No quantity: this row is not a position. Three cases, and telling them apart is what
+            # rebuilds the document:
+            #   * a DIN 276 cost-group heading ("520  Gründung, Unterbau") — remembered, so the
+            #     positions below inherit it, AND carried across with its own figures;
             #   * a CONTINUATION of the position above (no number of its own), which is where a
             #     German LV wraps its Langtext and prints the DIN references;
-            #   * any other heading, which is simply skipped.
-            if kg_level(oz) is not None:
+            #   * any other row that carries something — a source entry such as "1  LV Freiflächen"
+            #     — which is carried across as it stands.
+            level = kg_level(oz)
+            if level is not None:
                 kg_stack = _update_kg_stack(kg_stack, oz, desc)
+                entries.append(
+                    Entry(kind="kg", number=oz, text=desc, teilbetrag_ep=amount_raw,
+                          gesamt=total_raw, level=level, kg=tuple(kg_stack))
+                )
             elif desc and not oz and positions:
                 continuations[-1].append(desc)
+            elif desc or total_raw:
+                entries.append(
+                    Entry(kind="entry", number=oz, text=desc, teilbetrag_ep=amount_raw,
+                          gesamt=total_raw, kg=tuple(kg_stack))
+                )
             continue
+
+        entries.append(
+            Entry(kind="position", number=oz, text=desc,
+                  menge_einheit=(qty_raw or "").strip(),
+                  teilbetrag_ep=amount_raw, gesamt=total_raw, kg=tuple(kg_stack))
+        )
 
         unit = (cell(row, "unit") or "").strip() or split_unit
         long_text = (cell(row, "long_text") or "").strip()
@@ -599,10 +625,16 @@ def positions_from_rows(
 
     # Fold the gathered continuation lines into each position's long text, keeping the order they
     # were printed in. The short text stays as the file wrote it, so the table still reads as the LV.
-    return [
+    positions = [
         replace(p, long_text="\n".join(filter(None, [p.long_text, *extra])) or None)
         for p, extra in zip(positions, continuations, strict=True)
     ]
+    long_by_number = {p.oz: p.long_text for p in positions if p.long_text}
+    entries = [
+        replace(e, long_text=long_by_number.get(e.number)) if e.kind == "position" else e
+        for e in entries
+    ]
+    return positions, entries
 
 
 def read_csv(data: bytes, *, project_name: str) -> BillOfQuantities:
@@ -624,8 +656,9 @@ def read_csv(data: bytes, *, project_name: str) -> BillOfQuantities:
     # Same tail as every other grid source: find the header row rather than assuming row 1 (an export
     # may carry title lines above it, or none at all), and fall back to reading the columns from the
     # data when the labels are ones we do not know.
+    positions, entries = _positions_from_grid(grid)
     return BillOfQuantities(
-        project_name=project_name, positions=tuple(_positions_from_grid(grid))
+        project_name=project_name, positions=tuple(positions), entries=tuple(entries)
     )
 
 
@@ -640,7 +673,7 @@ def _cell_str(value: object) -> str:
     return str(value).strip()
 
 
-def _positions_from_grid(grid: list[list[str]]) -> list[Position]:
+def _positions_from_grid(grid: list[list[str]]) -> tuple[list[Position], list[Entry]]:
     """Shared tail for every grid-shaped source (spreadsheet, Word table, PDF table). A real LV often
     has title rows above the table, so rather than assuming row 1, scan for the first row that maps to
     a description+quantity+unit and take it as the header. A header that repeats lower down (Word/PDF
@@ -681,7 +714,10 @@ def read_xlsx(data: bytes, *, project_name: str) -> BillOfQuantities:
     except Exception as exc:  # openpyxl raises a variety of types on a bad/other-format file
         raise UnreadableFileError(f"not a readable .xlsx: {exc}") from exc
     grid = [[_cell_str(c) for c in row] for row in wb.active.iter_rows(values_only=True)]
-    return BillOfQuantities(project_name=project_name, positions=tuple(_positions_from_grid(grid)))
+    positions, entries = _positions_from_grid(grid)
+    return BillOfQuantities(
+        project_name=project_name, positions=tuple(positions), entries=tuple(entries)
+    )
 
 
 def read_docx(data: bytes, *, project_name: str) -> BillOfQuantities:
@@ -698,7 +734,10 @@ def read_docx(data: bytes, *, project_name: str) -> BillOfQuantities:
             grid.append([cell.text.strip() for cell in row.cells])
     if not grid:
         raise NoPositionsError("the Word document has no tables to read positions from")
-    return BillOfQuantities(project_name=project_name, positions=tuple(_positions_from_grid(grid)))
+    positions, entries = _positions_from_grid(grid)
+    return BillOfQuantities(
+        project_name=project_name, positions=tuple(positions), entries=tuple(entries)
+    )
 
 
 def read_pdf(data: bytes, *, project_name: str) -> BillOfQuantities:
@@ -724,7 +763,10 @@ def read_pdf(data: bytes, *, project_name: str) -> BillOfQuantities:
             "no table could be extracted from this PDF (it may be scanned or have no ruled table) — "
             "export the Leistungsverzeichnis to Excel or Word, or upload a GAEB file"
         )
-    return BillOfQuantities(project_name=project_name, positions=tuple(_positions_from_grid(grid)))
+    positions, entries = _positions_from_grid(grid)
+    return BillOfQuantities(
+        project_name=project_name, positions=tuple(positions), entries=tuple(entries)
+    )
 
 
 def _local(tag: str) -> str:

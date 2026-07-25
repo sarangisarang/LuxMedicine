@@ -206,10 +206,27 @@ export type GaebPosition = {
   section: string;
 };
 
+/** One row of the source document, mirroring its columns. `kind` says what the row is, which is
+ *  what lets the table be rendered the way the document reads. Every value is the source's own
+ *  text — nothing is computed. */
+export type GaebEntry = {
+  kind: "kg" | "entry" | "position";
+  number: string;
+  text: string;
+  menge_einheit: string;
+  teilbetrag_ep: string;
+  gesamt: string;
+  level: number;
+  kg: string[];
+  long_text: string | null;
+};
+
 export type GaebBoQ = {
   project_name: string;
   currency: string;
   positions: GaebPosition[];
+  /** The document as it stands, in order. This is what the table shows. */
+  entries: GaebEntry[];
 };
 
 /**

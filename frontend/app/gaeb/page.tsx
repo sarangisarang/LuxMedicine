@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRef, useState } from "react";
 
-import type { GaebBoQ, GaebPosition } from "@/lib/api";
+import type { GaebBoQ, GaebEntry } from "@/lib/api";
 import { UI_LANGUAGES, type UiLang } from "@/lib/i18n";
 
 // A German construction tool that lives behind the same login. Its copy is kept here, not in the
@@ -16,11 +16,7 @@ type GaebStrings = {
   convert: string;
   converting: string;
   verifyNote: string;
-  colKg1: string;
-  colKg2: string;
-  colKg3: string;
-  colKg4: string;
-  colOz: string;
+  colKgOz: string;
   colText: string;
   colQty: string;
   colUnit: string;
@@ -48,16 +44,12 @@ const STRINGS: Partial<Record<UiLang, GaebStrings>> & { en: GaebStrings } = {
     converting: "Reading…",
     verifyNote:
       "Verify every position and unit price before you export — a wrong price in a bid is real money. Nothing is exported that you have not confirmed.",
-    colKg1: "KG",
-    colKg2: "KG level 2",
-    colKg3: "KG level 3",
-    colKg4: "KG level 4",
-    colOz: "Position no.",
-    colText: "Leistungstext",
-    colQty: "Qty",
+    colKgOz: "KG / OZ",
+    colText: "DIN 276 (2018-12) / Quelleinträge",
+    colQty: "Menge/Einheit",
     colUnit: "Unit",
     colPrice: "Unit price",
-    colTeilbetrag: "Partial amount",
+    colTeilbetrag: "Teilbetrag / EP",
     colTotal: "Total EUR",
     mismatchWarning: (n) =>
       `${n} row${n === 1 ? "" : "s"} do not match the total printed in the source file. A column was probably read wrongly — check the quantity and unit price on the rows marked in red before exporting.`,
@@ -79,16 +71,12 @@ const STRINGS: Partial<Record<UiLang, GaebStrings>> & { en: GaebStrings } = {
     converting: "Wird eingelesen…",
     verifyNote:
       "Prüfen Sie jede Position und jeden Einheitspreis vor dem Export — ein falscher Preis im Angebot ist echtes Geld. Es wird nichts exportiert, was Sie nicht bestätigt haben.",
-    colKg1: "KG",
-    colKg2: "KG-Ebene 2",
-    colKg3: "KG-Ebene 3",
-    colKg4: "KG-Ebene 4",
-    colOz: "Positionsnummer",
-    colText: "Leistungstext",
-    colQty: "Menge",
+    colKgOz: "KG / OZ",
+    colText: "DIN 276 (2018-12) / Quelleinträge",
+    colQty: "Menge/Einheit",
     colUnit: "Einheit",
     colPrice: "Einheitspreis",
-    colTeilbetrag: "Teilbetrag",
+    colTeilbetrag: "Teilbetrag / EP",
     colTotal: "Gesamt EUR",
     mismatchWarning: (n) =>
       `${n} Position${n === 1 ? "" : "en"} stimmen nicht mit dem in der Datei ausgewiesenen Gesamtbetrag überein. Vermutlich wurde eine Spalte falsch gelesen — prüfen Sie Menge und Einheitspreis der rot markierten Zeilen vor dem Export.`,
@@ -110,16 +98,12 @@ const STRINGS: Partial<Record<UiLang, GaebStrings>> & { en: GaebStrings } = {
     converting: "იკითხება…",
     verifyNote:
       "ექსპორტამდე შეამოწმე ყოველი პოზიცია და ერთეულის ფასი — არასწორი ფასი ბიდში რეალური ფულია. არაფერი ექსპორტდება, რაც არ დაგიდასტურებია.",
-    colKg1: "KG",
-    colKg2: "KG დონე 2",
-    colKg3: "KG დონე 3",
-    colKg4: "KG დონე 4",
-    colOz: "პოზიციის ნომერი",
-    colText: "სამუშაოს ტექსტი",
-    colQty: "რაოდ.",
+    colKgOz: "KG / OZ",
+    colText: "DIN 276 (2018-12) / Quelleinträge",
+    colQty: "Menge/Einheit",
     colUnit: "ერთ.",
     colPrice: "ერთ. ფასი",
-    colTeilbetrag: "ნაწილობრივი თანხა",
+    colTeilbetrag: "Teilbetrag / EP",
     colTotal: "ჯამი EUR",
     mismatchWarning: (n) =>
       `${n} მწკრივი არ ემთხვევა ფაილში მითითებულ ჯამს. სავარაუდოდ სვეტი არასწორად წაიკითხა — ექსპორტამდე შეამოწმე წითლად მონიშნული მწკრივების რაოდენობა და ერთეულის ფასი.`,
@@ -133,17 +117,16 @@ const STRINGS: Partial<Record<UiLang, GaebStrings>> & { en: GaebStrings } = {
   },
 };
 
-const EMPTY: GaebPosition = {
+const EMPTY: GaebEntry = {
+  kind: "position",
+  number: "",
+  text: "",
+  menge_einheit: "",
+  teilbetrag_ep: "",
+  gesamt: "",
+  level: 0,
   kg: [],
-  oz: "",
-  short_text: "",
-  quantity: "",
-  unit: "",
-  teilbetrag: null,
-  unit_price: "",
-  total: null,
   long_text: null,
-  section: "",
 };
 
 function toNumber(raw: string | null): number {
@@ -165,22 +148,20 @@ export default function GaebPage() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState("");
   const [projectName, setProjectName] = useState("");
-  const [positions, setPositions] = useState<GaebPosition[] | null>(null);
+  const [rows, setRows] = useState<GaebEntry[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function update(i: number, field: keyof GaebPosition, value: string) {
-    setPositions((prev) =>
-      prev ? prev.map((p, j) => (j === i ? { ...p, [field]: value } : p)) : prev,
-    );
+  function update(i: number, field: keyof GaebEntry, value: string) {
+    setRows((prev) => (prev ? prev.map((r, j) => (j === i ? { ...r, [field]: value } : r)) : prev));
   }
 
   function removeRow(i: number) {
-    setPositions((prev) => (prev ? prev.filter((_, j) => j !== i) : prev));
+    setRows((prev) => (prev ? prev.filter((_, j) => j !== i) : prev));
   }
 
   function addRow() {
-    setPositions((prev) => [...(prev ?? []), { ...EMPTY }]);
+    setRows((prev) => [...(prev ?? []), { ...EMPTY }]);
   }
 
   async function convert() {
@@ -203,12 +184,13 @@ export default function GaebPage() {
       const data = await res.json();
       if (!res.ok) {
         setError(data.error ?? `HTTP ${res.status}`);
-        setPositions(null);
+        setRows(null);
         return;
       }
       const boq = data as GaebBoQ;
       setProjectName(base);
-      setPositions(boq.positions);
+      // The document as it stands — headings, source entries and positions, in order.
+      setRows(boq.entries?.length ? boq.entries : []);
     } catch {
       setError("The server could not be reached. Try again in a moment.");
     } finally {
@@ -217,14 +199,14 @@ export default function GaebPage() {
   }
 
   async function exportX84() {
-    if (!positions) return;
+    if (!rows) return;
     setError(null);
     setBusy(true);
     try {
       const res = await fetch("/api/gaeb/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ project_name: projectName, currency: "EUR", positions }),
+        body: JSON.stringify({ project_name: projectName, currency: "EUR", entries: rows }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
@@ -253,11 +235,13 @@ export default function GaebPage() {
   // Quantity × unit price is never displayed or exported — the file's own figures are. It is
   // computed here for one purpose: if it disagrees with the total the file printed, a column was
   // read wrongly, and the row is marked so a person looks at it.
-  function mismatched(p: GaebPosition): boolean {
-    if (!p.total) return false;
-    return Math.abs(toNumber(p.quantity) * toNumber(p.unit_price) - toNumber(p.total)) > 0.02;
+  function mismatched(r: GaebEntry): boolean {
+    if (r.kind !== "position" || !r.gesamt || !r.teilbetrag_ep) return false;
+    return (
+      Math.abs(toNumber(r.menge_einheit) * toNumber(r.teilbetrag_ep) - toNumber(r.gesamt)) > 0.02
+    );
   }
-  const mismatches = (positions ?? []).filter(mismatched).length;
+  const mismatches = (rows ?? []).filter(mismatched).length;
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-8">
@@ -299,13 +283,13 @@ export default function GaebPage() {
           disabled={busy}
           className="rounded-md bg-neutral-900 px-4 py-1.5 text-sm text-white disabled:opacity-40 dark:bg-white dark:text-neutral-900"
         >
-          {busy && !positions ? t.converting : t.convert}
+          {busy && !rows ? t.converting : t.convert}
         </button>
       </div>
 
       {error && <p className="mt-4 text-sm text-red-600 dark:text-red-400">{error}</p>}
 
-      {positions && (
+      {rows && (
         <div className="mt-6">
           <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-300">
             {t.verifyNote}
@@ -320,77 +304,86 @@ export default function GaebPage() {
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-sm">
               <thead>
-                {/* The order the specification requires: KG -> KG 2 -> KG 3 -> KG 4 ->
-                    Positionsnummer -> Leistungstext -> Menge -> Einheit -> Teilbetrag -> EP ->
-                    Gesamt EUR. */}
+                {/* The source document's own columns, in its own order. */}
                 <tr className="border-b border-neutral-200 text-left text-xs text-neutral-500 dark:border-neutral-800">
-                  <th className="py-2 pr-2">{t.colKg1}</th>
-                  <th className="py-2 pr-2">{t.colKg2}</th>
-                  <th className="py-2 pr-2">{t.colKg3}</th>
-                  <th className="py-2 pr-2">{t.colKg4}</th>
-                  <th className="py-2 pr-2">{t.colOz}</th>
+                  <th className="py-2 pr-2">{t.colKgOz}</th>
                   <th className="py-2 pr-2">{t.colText}</th>
                   <th className="py-2 pr-2 text-right">{t.colQty}</th>
-                  <th className="py-2 pr-2">{t.colUnit}</th>
                   <th className="py-2 pr-2 text-right">{t.colTeilbetrag}</th>
-                  <th className="py-2 pr-2 text-right">{t.colPrice}</th>
                   <th className="py-2 pr-2 text-right">{t.colTotal}</th>
                   <th className="py-2" />
                 </tr>
               </thead>
               <tbody>
-                {positions.map((p, i) => (
-                  <tr key={i} className="border-b border-neutral-100 align-top dark:border-neutral-900">
-                    {/* The DIN 276 path this position was printed under, read from the document's
-                        own headings. Shown as it stood there and not editable — it is a fact about
-                        the source, not a field of ours. */}
-                    {[0, 1, 2, 3].map((level) => (
-                      <td key={level} className="py-1 pr-2 text-xs text-neutral-500">
-                        {p.kg?.[level] ?? ""}
-                      </td>
-                    ))}
-                    <td className="py-1 pr-2">
-                      <input value={p.oz} onChange={(e) => update(i, "oz", e.target.value)} className="w-24 rounded border border-neutral-200 bg-transparent px-1 py-0.5 dark:border-neutral-800" />
-                    </td>
-                    <td className="py-1 pr-2">
-                      <input value={p.short_text} onChange={(e) => update(i, "short_text", e.target.value)} className="w-full min-w-[14rem] rounded border border-neutral-200 bg-transparent px-1 py-0.5 dark:border-neutral-800" />
-                      {/* The Langtext — the wrapped lines carrying the DIN references and the
-                          technical qualifiers. Shown, not hidden: a bidder has to read them, and
-                          they travel into the .x84 as the position's detail text. */}
-                      {p.long_text && (
-                        <textarea
-                          value={p.long_text}
-                          onChange={(e) => update(i, "long_text", e.target.value)}
-                          rows={Math.min(6, p.long_text.split("\n").length + 1)}
-                          className="mt-1 w-full min-w-[14rem] rounded border border-neutral-200 bg-transparent px-1 py-0.5 text-xs text-neutral-500 dark:border-neutral-800"
+                {rows.map((r, i) => {
+                  const heading = r.kind !== "position";
+                  return (
+                    <tr
+                      key={i}
+                      className={`border-b border-neutral-100 align-top dark:border-neutral-900 ${
+                        heading ? "bg-neutral-50 font-medium dark:bg-neutral-900/40" : ""
+                      }`}
+                    >
+                      {/* KG / OZ — indented by its level, so the hierarchy reads as it does in the
+                          source document. */}
+                      <td className="py-1 pr-2 whitespace-nowrap">
+                        <input
+                          value={r.number}
+                          onChange={(e) => update(i, "number", e.target.value)}
+                          style={{ paddingLeft: `${(r.level ? r.level - 1 : 3) * 0.75}rem` }}
+                          className="w-32 rounded border border-transparent bg-transparent px-1 py-0.5 hover:border-neutral-200 dark:hover:border-neutral-800"
                         />
-                      )}
-                    </td>
-                    {/* Menge, Einheit, Teilbetrag, EP and Gesamt exactly as the source printed
-                        them. Editable, so a person can correct a mis-read cell — but never
-                        recalculated by us. */}
-                    <td className="py-1 pr-2">
-                      <input value={p.quantity} onChange={(e) => update(i, "quantity", e.target.value)} className="w-20 rounded border border-neutral-200 bg-transparent px-1 py-0.5 text-right dark:border-neutral-800" />
-                    </td>
-                    <td className="py-1 pr-2">
-                      <input value={p.unit} onChange={(e) => update(i, "unit", e.target.value)} className="w-14 rounded border border-neutral-200 bg-transparent px-1 py-0.5 dark:border-neutral-800" />
-                    </td>
-                    <td className="py-1 pr-2">
-                      <input value={p.teilbetrag ?? ""} onChange={(e) => update(i, "teilbetrag", e.target.value)} className="w-24 rounded border border-neutral-200 bg-transparent px-1 py-0.5 text-right dark:border-neutral-800" />
-                    </td>
-                    <td className="py-1 pr-2">
-                      <input value={p.unit_price ?? ""} onChange={(e) => update(i, "unit_price", e.target.value)} className="w-24 rounded border border-neutral-200 bg-transparent px-1 py-0.5 text-right dark:border-neutral-800" />
-                    </td>
-                    <td className={`py-1 pr-2 ${mismatched(p) ? "rounded bg-red-50 dark:bg-red-950" : ""}`}>
-                      <input value={p.total ?? ""} onChange={(e) => update(i, "total", e.target.value)} className="w-28 rounded border border-neutral-200 bg-transparent px-1 py-0.5 text-right dark:border-neutral-800" />
-                    </td>
-                    <td className="py-1">
-                      <button type="button" onClick={() => removeRow(i)} className="text-xs text-neutral-400 hover:text-red-500">
-                        {t.removeRow}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="py-1 pr-2">
+                        <input
+                          value={r.text}
+                          onChange={(e) => update(i, "text", e.target.value)}
+                          className="w-full min-w-[18rem] rounded border border-transparent bg-transparent px-1 py-0.5 hover:border-neutral-200 dark:hover:border-neutral-800"
+                        />
+                        {/* The Langtext — where a German LV prints its DIN references. */}
+                        {r.long_text && (
+                          <textarea
+                            value={r.long_text}
+                            onChange={(e) => update(i, "long_text", e.target.value)}
+                            rows={Math.min(6, r.long_text.split("\n").length + 1)}
+                            className="mt-1 w-full min-w-[18rem] rounded border border-neutral-200 bg-transparent px-1 py-0.5 text-xs text-neutral-500 dark:border-neutral-800"
+                          />
+                        )}
+                      </td>
+                      {/* Menge/Einheit, Teilbetrag / EP and Gesamt EUR exactly as printed. */}
+                      <td className="py-1 pr-2 text-right">
+                        <input
+                          value={r.menge_einheit}
+                          onChange={(e) => update(i, "menge_einheit", e.target.value)}
+                          className="w-24 rounded border border-transparent bg-transparent px-1 py-0.5 text-right hover:border-neutral-200 dark:hover:border-neutral-800"
+                        />
+                      </td>
+                      <td className="py-1 pr-2 text-right">
+                        <input
+                          value={r.teilbetrag_ep}
+                          onChange={(e) => update(i, "teilbetrag_ep", e.target.value)}
+                          className="w-28 rounded border border-transparent bg-transparent px-1 py-0.5 text-right hover:border-neutral-200 dark:hover:border-neutral-800"
+                        />
+                      </td>
+                      <td className={`py-1 pr-2 text-right ${mismatched(r) ? "rounded bg-red-50 dark:bg-red-950" : ""}`}>
+                        <input
+                          value={r.gesamt}
+                          onChange={(e) => update(i, "gesamt", e.target.value)}
+                          className="w-32 rounded border border-transparent bg-transparent px-1 py-0.5 text-right hover:border-neutral-200 dark:hover:border-neutral-800"
+                        />
+                      </td>
+                      <td className="py-1">
+                        <button
+                          type="button"
+                          onClick={() => removeRow(i)}
+                          className="text-xs text-neutral-400 hover:text-red-500"
+                        >
+                          {t.removeRow}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

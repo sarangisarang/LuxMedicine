@@ -363,6 +363,36 @@ def test_din_276_cost_groups_are_read_and_assigned_to_their_positions():
     )
 
 
+def test_every_row_of_the_document_is_carried_across_not_only_the_positions():
+    """The converted view must BE the document. A Kostenberechnung interleaves cost-group headings,
+    source entries ("1  LV Freiflächen") and positions, and each carries figures of its own — keeping
+    only the positions threw the group totals away. Taken from the reported Freianlagen document."""
+    csv = (
+        "KG / OZ;DIN 276 (2018-12) / Quelleinträge;Menge/Einheit;Teilbetrag / EP;Gesamt EUR\n"
+        "500;Außenanlagen und Freiflächen;;;2.218.779,50\n"
+        "520;Gründung, Unterbau;;;13.045,00\n"
+        "522;Gründungen und Bodenplatten;;;13.045,00\n"
+        "1;LV Freiflächen;;;13.045,00\n"
+        "1.02.02.03;Stahlplatten als Lastverteilplatten;25 Stk;521,80;13.045,00\n"
+    ).encode("utf-8")
+    boq = read_csv(csv, project_name="Freianlagen")
+
+    kinds = [(e.kind, e.number, e.gesamt) for e in boq.entries]
+    assert kinds == [
+        ("kg", "500", "2.218.779,50"),
+        ("kg", "520", "13.045,00"),
+        ("kg", "522", "13.045,00"),
+        ("entry", "1", "13.045,00"),       # the Quelleintrag, with its own figure
+        ("position", "1.02.02.03", "13.045,00"),
+    ]
+    # The amounts are the file's own text, never re-derived.
+    position = boq.entries[-1]
+    assert position.menge_einheit == "25 Stk"
+    assert position.teilbetrag_ep == "521,80"
+    # Only the position is exportable to a .x84; the headings are structure.
+    assert len(boq.positions) == 1
+
+
 def test_kg_levels_follow_the_shape_of_the_number():
     from app.services.gaeb.readers import kg_level
 

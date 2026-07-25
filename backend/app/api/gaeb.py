@@ -58,10 +58,29 @@ class PositionDTO(BaseModel):
     section: str = ""
 
 
+class EntryDTO(BaseModel):
+    """One row of the source document, mirroring its columns: KG/OZ, DIN 276 / Quelleinträge,
+    Menge/Einheit, Teilbetrag / EP, Gesamt EUR. `kind` says whether the row is a cost-group heading,
+    a source entry or a position — that is what lets the table be rendered the way the document
+    reads. Every value is the source's own text; nothing here is computed."""
+
+    kind: str = "position"
+    number: str = ""
+    text: str = ""
+    menge_einheit: str = ""
+    teilbetrag_ep: str = ""
+    gesamt: str = ""
+    level: int = 0
+    kg: list[str] = Field(default_factory=list)
+    long_text: str | None = None
+
+
 class BoQDTO(BaseModel):
     project_name: str = "Leistungsverzeichnis"
     currency: str = "EUR"
     positions: list[PositionDTO] = Field(default_factory=list)
+    # The document as it stands, for display. `positions` is the subset that can become .x84 items.
+    entries: list[EntryDTO] = Field(default_factory=list)
 
 
 def _fmt(value: Decimal | None, places: int) -> str:
@@ -102,6 +121,43 @@ def _to_dto(boq: BillOfQuantities) -> BoQDTO:
             )
             for p in boq.positions
         ],
+        entries=[
+            EntryDTO(
+                kind=e.kind,
+                number=e.number,
+                text=e.text,
+                menge_einheit=e.menge_einheit,
+                teilbetrag_ep=e.teilbetrag_ep,
+                gesamt=e.gesamt,
+                level=e.level,
+                kg=list(e.kg),
+                long_text=e.long_text,
+            )
+            for e in boq.entries
+        ],
+    )
+
+
+def _entry_to_position(e: EntryDTO, index: int, thousands: str | None) -> Position | None:
+    """Turn one displayed row back into an exportable position, or None if it is not one.
+
+    A heading is structure, not an item: only rows the reader called a position become .x84 items.
+    The values are parsed from the text the table holds — which is the source's own text, possibly
+    corrected by hand — and never recalculated."""
+    if e.kind != "position":
+        return None
+    quantity_text, split_unit = split_quantity_unit(e.menge_einheit)
+    quantity = parse_decimal(quantity_text, thousands=thousands)
+    return Position(
+        oz=e.number.strip() or f"{index * 10:04d}",
+        short_text=e.text.strip(),
+        quantity=quantity if quantity is not None else Decimal(0),
+        unit=split_unit,
+        unit_price=parse_decimal(e.teilbetrag_ep, thousands=thousands),
+        source_total=parse_decimal(e.gesamt, thousands=thousands),
+        long_text=(e.long_text or "").strip() or None,
+        section=e.kg[-1] if e.kg else "",
+        kg=tuple(e.kg),
     )
 
 
@@ -111,8 +167,29 @@ def _from_dto(dto: BoQDTO) -> BillOfQuantities:
     # its unit ("720 m2"). The values themselves are never recomputed; they are only typed so the
     # .x84 can carry them.
     thousands = detect_thousands_separator(
-        [t for p in dto.positions for t in (p.quantity, p.unit_price or "", p.total or "")]
+        [t for e in dto.entries for t in (e.menge_einheit, e.teilbetrag_ep, e.gesamt)]
+        or [t for p in dto.positions for t in (p.quantity, p.unit_price or "", p.total or "")]
     )
+
+    # The table is the document, so the export reads it: every row the user confirmed, with the
+    # headings acting as structure and the positions becoming items.
+    if dto.entries:
+        rows: list[Position] = []
+        for i, e in enumerate(dto.entries, start=1):
+            try:
+                position = _entry_to_position(e, i, thousands)
+            except UnreadableFileError as exc:
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    f"row {i} ({e.number or e.text!r}): {exc}",
+                ) from exc
+            if position is not None:
+                rows.append(position)
+        return BillOfQuantities(
+            project_name=dto.project_name.strip() or "Leistungsverzeichnis",
+            currency=dto.currency.strip() or "EUR",
+            positions=tuple(rows),
+        )
 
     positions: list[Position] = []
     for i, p in enumerate(dto.positions, start=1):
