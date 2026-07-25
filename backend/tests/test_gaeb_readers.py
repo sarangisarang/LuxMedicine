@@ -262,6 +262,48 @@ def test_a_heading_row_with_its_own_oz_is_not_folded_into_the_position_above():
     assert "Maurerarbeiten" not in (boq.positions[0].long_text or "")
 
 
+def test_a_real_german_lv_row_shape():
+    """The shape of an actual Freianlagen LV (reported from production): the quantity and its unit
+    share one column ("720 m2"), and thousands are grouped with a dot ("1.180 m", "1.850,40").
+
+    Both were wrong before: "720 m2" is not a number, so the row was lost or mis-read, and "1.180"
+    parsed as 1.18 — a factor of a thousand, which is how single positions came out at millions of
+    euros in a 2.2 M€ project.
+    """
+    csv = (
+        "OZ;Bezeichnung;Menge;EP;Gesamt\n"
+        "1.03.01.01;Planum Erdbau;720 m2;2,57;1.850,40\n"
+        "1.03.01.21;Pflasterschnitt 8-10 cm;1.180 m;28,00;33.040,00\n"
+        "1.02.02.03;Stahlplatten als Lastverteilplatten;25 Stk;521,80;13.045,00\n"
+    ).encode("utf-8")
+    boq = read_csv(csv, project_name="Freianlagen")
+
+    assert len(boq.positions) == 3
+    planum, schnitt, platten = boq.positions
+
+    assert (planum.quantity, planum.unit) == (Decimal("720"), "m2")
+    assert planum.unit_price == Decimal("2.57")
+    assert planum.item_total == Decimal("1850.40")  # matches the file's own Gesamt
+
+    assert (schnitt.quantity, schnitt.unit) == (Decimal("1180"), "m")  # not 1.18
+    assert schnitt.item_total == Decimal("33040.00")
+
+    assert (platten.quantity, platten.unit) == (Decimal("25"), "Stk")
+    assert platten.item_total == Decimal("13045.00")
+
+    # The grand total agrees with the source document rather than exceeding it by orders of magnitude.
+    assert boq.total == Decimal("47935.40")
+
+
+def test_an_english_file_still_reads_a_dot_as_a_decimal_point():
+    """The convention is detected per file, so widening German support must not break English input:
+    here "2.57" is two and a half, not two hundred and fifty-seven."""
+    csv = b"OZ;Description;Qty;Unit;Unit price\n1;Concrete;10;m3;2.57\n2;Steel;4;t;1.50\n"
+    boq = read_csv(csv, project_name="x")
+    assert boq.positions[0].unit_price == Decimal("2.57")
+    assert boq.positions[1].unit_price == Decimal("1.50")
+
+
 def test_a_missing_unit_column_is_tolerated():
     """A .x84 position can carry an empty unit; a description and a quantity are the real minimum."""
     csv = b"Pos;Bezeichnung;Menge;EP\n1;Malerarbeiten;5;20,00\n"

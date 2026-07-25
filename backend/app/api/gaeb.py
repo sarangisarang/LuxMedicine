@@ -58,6 +58,19 @@ def _fmt(value: Decimal | None, places: int) -> str:
     return "" if value is None else f"{value:.{places}f}"
 
 
+def _fmt_quantity(value: Decimal | None) -> str:
+    """A quantity without pointless trailing zeros: 720, 12.5 — not "720.000".
+
+    Cosmetic but not trivial: to a German reader "720.000" is seven hundred and twenty THOUSAND,
+    because a dot groups thousands there. Showing a padded quantity in a German construction tool
+    invites exactly the misreading this converter has to avoid.
+    """
+    if value is None:
+        return ""
+    text = f"{value:.3f}".rstrip("0").rstrip(".")
+    return text or "0"
+
+
 def _to_dto(boq: BillOfQuantities) -> BoQDTO:
     return BoQDTO(
         project_name=boq.project_name,
@@ -66,7 +79,7 @@ def _to_dto(boq: BillOfQuantities) -> BoQDTO:
             PositionDTO(
                 oz=p.oz,
                 short_text=p.short_text,
-                quantity=_fmt(p.quantity, 3),
+                quantity=_fmt_quantity(p.quantity),
                 unit=p.unit,
                 unit_price=None if p.unit_price is None else _fmt(p.unit_price, 2),
                 long_text=p.long_text,

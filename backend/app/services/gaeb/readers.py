@@ -45,24 +45,73 @@ class NoPositionsError(ValueError):
     spreadsheet whose columns were not recognised."""
 
 
-def parse_decimal(raw: str | None) -> Decimal | None:
+# Unambiguous shapes that reveal which convention a file is written in. "1.234,56" and "2,57" can
+# only be German; "1,234.56" and "2.57" can only be English.
+_GERMAN_NUMBER = re.compile(r"^\d{1,3}(?:\.\d{3})+,\d+$|^\d+,\d{1,2}$")
+_ENGLISH_NUMBER = re.compile(r"^\d{1,3}(?:,\d{3})+\.\d+$|^\d+\.\d{1,2}$")
+
+
+def detect_thousands_separator(cells: list[str]) -> str | None:
+    """Which character this file uses to group thousands, judged from the values it contains.
+
+    Needed because a lone separator with exactly three digits after it is genuinely ambiguous:
+    "1.180" is one thousand one hundred and eighty in a German LV and one-point-one-eight in an
+    English one, and guessing wrong changes a quantity by a factor of a thousand — silently, since
+    both readings are valid numbers. So rather than assume, look at the whole file: "2,57" and
+    "1.234,56" can only be German, "2.57" and "1,234.56" only English, and the weight of that
+    evidence decides the ambiguous cases.
+    """
+    german = english = 0
+    for cell in cells:
+        text = (cell or "").strip()
+        if not text:
+            continue
+        if _GERMAN_NUMBER.match(text):
+            german += 1
+        elif _ENGLISH_NUMBER.match(text):
+            english += 1
+    if german > english:
+        return "."
+    if english > german:
+        return ","
+    return None
+
+
+def parse_decimal(raw: str | None, *, thousands: str | None = None) -> Decimal | None:
     """Read a quantity or price written in either German or English convention. Returns None for a
-    blank cell (an unpriced position is valid in the model; the writer decides if that blocks .x84)."""
+    blank cell (an unpriced position is valid in the model; the writer decides if that blocks .x84).
+
+    `thousands` resolves the one genuinely ambiguous shape — a single separator followed by exactly
+    three digits — with the convention detected for the file as a whole. Without it such a value is
+    read as a decimal point, which is the safer reading of a lone number but wrong for a German LV.
+    """
     if raw is None:
         return None
     s = str(raw).strip()
-    for junk in (" ", " ", "€", "EUR", "\t"):
+    for junk in (" ", " ", "€", "EUR", "	"):
         s = s.replace(junk, "")
     if not s:
         return None
+
     if "," in s and "." in s:
-        # Whichever separator comes last is the decimal point; the other is thousands.
+        # Both present: whichever comes last is the decimal point, the other groups thousands.
         if s.rfind(",") > s.rfind("."):
             s = s.replace(".", "").replace(",", ".")  # 1.234,56 -> 1234.56
         else:
             s = s.replace(",", "")  # 1,234.56 -> 1234.56
-    elif "," in s:
-        s = s.replace(",", ".")  # 1234,56 -> 1234.56
+    else:
+        for sep in (".", ","):
+            if sep not in s:
+                continue
+            head, _, tail = s.rpartition(sep)
+            repeated = s.count(sep) > 1
+            grouped = len(tail) == 3 and tail.isdigit() and bool(head)
+            if repeated or (grouped and thousands == sep):
+                s = s.replace(sep, "")  # 1.234.567, or 1.180 -> 1180 in a German file
+            elif sep == ",":
+                s = s.replace(",", ".")  # 1234,56 -> 1234.56
+            break
+
     try:
         return Decimal(s)
     except InvalidOperation as exc:
@@ -145,7 +194,7 @@ def _map_columns(header: list[str]) -> dict[str, int]:
     return mapping
 
 
-def _maybe_decimal(raw: str | None) -> Decimal | None:
+def _maybe_decimal(raw: str | None, *, thousands: str | None = None) -> Decimal | None:
     """`parse_decimal`, but a value that is not a number reads as absent rather than as an error.
 
     Right for reading a FILE: a grid contains header cells, section titles, notes and totals mixed in
@@ -154,13 +203,38 @@ def _maybe_decimal(raw: str | None) -> Decimal | None:
     stays strict for values a person typed into the verify table, where a typo must be reported.
     """
     try:
-        return parse_decimal(raw)
+        return parse_decimal(raw, thousands=thousands)
     except UnreadableFileError:
         return None
 
 
-def _is_numeric(value: str) -> bool:
-    return _maybe_decimal(value) is not None
+def _is_numeric(value: str, thousands: str | None = None) -> bool:
+    return _maybe_decimal(value, thousands=thousands) is not None
+
+
+def _all_cells(rows: list[list[str]]) -> list[str]:
+    return [c for row in rows for c in row]
+
+
+# "720 m2", "25 Stk", "1.180 m" — a quantity and its unit printed in one column, which is how a PDF
+# or Word LV usually sets them. Read as a single value it is not a number at all and the whole row
+# would be dropped, so the two are separated here.
+# The separator must be whitespace, and the trailing token is checked against the unit vocabulary
+# below — so "720 m2" splits (a unit may contain digits, as m2 and m3 do) while "1.180" or "12x4"
+# never does.
+_QTY_WITH_UNIT = re.compile(r"^([\d.,]+)\s+(\S{1,6})$")
+
+
+def _split_quantity_unit(text: str) -> tuple[str, str]:
+    """Split "720 m2" into ("720", "m2"). Only when the trailing token really is a unit — otherwise
+    the text is returned untouched, so "1.180" or "12a" is never silently truncated."""
+    match = _QTY_WITH_UNIT.match((text or "").strip())
+    if not match:
+        return text, ""
+    number, suffix = match.group(1), match.group(2)
+    if suffix.lower().rstrip(".") not in _UNIT_TOKENS:
+        return text, ""
+    return number, suffix
 
 
 # "01.0010", "1.1", "1.2.30", "1-2" — an Ordnungszahl, not a measurement. It parses as a number,
@@ -175,7 +249,9 @@ def _looks_like_position_numbers(cells: list[str]) -> bool:
     return sum(1 for c in filled if _POSITION_NUMBER.match(c)) / len(filled) >= 0.6
 
 
-def _multiplies_out(rows: list[list[str]], qty: int, unit_price: int, total: int) -> bool:
+def _multiplies_out(
+    rows: list[list[str]], qty: int, unit_price: int, total: int, thousands: str | None = None
+) -> bool:
     """True when quantity × unit_price equals the total column on most rows where all three are
     present. This is what tells a unit price from a line total when both are just numbers — the
     arithmetic is the evidence, rather than a guess from column order."""
@@ -184,7 +260,7 @@ def _multiplies_out(rows: list[list[str]], qty: int, unit_price: int, total: int
     for row in rows:
         values = []
         for idx in (qty, unit_price, total):
-            values.append(_maybe_decimal(row[idx]) if idx < len(row) else None)
+            values.append(_maybe_decimal(row[idx], thousands=thousands) if idx < len(row) else None)
         q, u, t = values
         if q is None or u is None or t is None or q == 0 or u == 0:
             continue
@@ -207,6 +283,7 @@ def _infer_columns_by_content(rows: list[list[str]]) -> dict[str, int]:
     if not rows:
         return {}
     width = max(len(r) for r in rows)
+    thousands = detect_thousands_separator(_all_cells(rows))
 
     def column(idx: int) -> list[str]:
         return [(r[idx].strip() if idx < len(r) else "") for r in rows]
@@ -220,7 +297,7 @@ def _infer_columns_by_content(rows: list[list[str]]) -> dict[str, int]:
                  "position_like": False}
             )
             continue
-        numeric = sum(1 for c in cells if _is_numeric(c)) / len(cells)
+        numeric = sum(1 for c in cells if _is_numeric(c, thousands)) / len(cells)
         unitish = sum(1 for c in cells if c.lower().rstrip(".") in _UNIT_TOKENS) / len(cells)
         avg_len = sum(len(c) for c in cells) / len(cells)
         stats.append(
@@ -262,7 +339,7 @@ def _infer_columns_by_content(rows: list[list[str]]) -> dict[str, int]:
                 for other in after:
                     if other["idx"] == candidate["idx"]:
                         continue
-                    if _multiplies_out(rows, qty_idx, candidate["idx"], other["idx"]):
+                    if _multiplies_out(rows, qty_idx, candidate["idx"], other["idx"], thousands):
                         chosen = candidate["idx"]
                         mapping["_total"] = other["idx"]  # remembered only to keep it out of the way
                         break
@@ -346,6 +423,10 @@ def positions_from_rows(
                 f"First rows: {_sample(rows)}"
             )
 
+    # One convention for the whole file: "1.180" is 1180 in a German LV and 1.18 in an English one,
+    # and the file itself says which it is (see detect_thousands_separator).
+    thousands = detect_thousands_separator(_all_cells(rows))
+
     def cell(row: list[str], field: str) -> str | None:
         idx = cols.get(field)
         if idx is None or idx >= len(row):
@@ -359,7 +440,12 @@ def positions_from_rows(
         qty_raw = cell(row, "quantity")
         if not desc and not (qty_raw and qty_raw.strip()):
             continue  # a blank or separator row
-        quantity = _maybe_decimal(qty_raw)
+        quantity = _maybe_decimal(qty_raw, thousands=thousands)
+        # "720 m2" in one cell: separate the unit rather than lose the whole row.
+        split_unit = ""
+        if quantity is None and qty_raw:
+            number, split_unit = _split_quantity_unit(qty_raw)
+            quantity = _maybe_decimal(number, thousands=thousands) if split_unit else None
         oz = (cell(row, "oz") or "").strip()
 
         if quantity is None:
@@ -372,7 +458,7 @@ def positions_from_rows(
                 continuations[-1].append(desc)
             continue
 
-        unit = (cell(row, "unit") or "").strip()
+        unit = (cell(row, "unit") or "").strip() or split_unit
         long_text = (cell(row, "long_text") or "").strip()
         section = (cell(row, "section") or "").strip()
         positions.append(
@@ -381,7 +467,7 @@ def positions_from_rows(
                 short_text=desc,
                 quantity=quantity,
                 unit=unit,
-                unit_price=_maybe_decimal(cell(row, "unit_price")),
+                unit_price=_maybe_decimal(cell(row, "unit_price"), thousands=thousands),
                 long_text=long_text or None,
                 section=section,
             )
