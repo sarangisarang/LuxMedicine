@@ -946,6 +946,47 @@ def _split_glued_amounts(cell: str) -> list[str]:
     return parts if len(parts) > 1 else [text]
 
 
+# A German amount, for finding the figures inside a cell that holds more than one.
+_AMOUNT = re.compile(r"\d{1,3}(?:\.\d{3})*,\d{2}")
+# The German VAT rates. Used as evidence, not as arithmetic on the user's behalf: if one amount in a
+# cell is another plus VAT, the second is the gross figure and can be recognised as such.
+_VAT_RATES = (Decimal("1.19"), Decimal("1.07"))
+
+
+def strip_vat(cell: str) -> str:
+    """Remove the gross figure from a cell that carries both, and the VAT lines printed with it.
+
+    The row-level filter is not enough on its own: an extractor often folds two printed lines into
+    ONE cell, so "Außenanlagen und Freiflächen / Gesamt (inkl. MwSt. 19,0%), Brutto:" and its two
+    amounts arrive together, on a row that carries a cost group number and must therefore be kept.
+    The gross is identified by the arithmetic already in the document — it is the net plus VAT — and
+    by the words printed beside it, never by position or by us computing anything new.
+    """
+    text = (cell or "").strip()
+    if not text:
+        return text
+
+    lines = [
+        line
+        for line in text.splitlines()
+        if not any(marker in line.lower() for marker in _FURNITURE_MARKERS)
+    ]
+    text = "\n".join(line for line in lines if line.strip()).strip()
+
+    # Two amounts, whether printed apart or run together by the extractor ("229.622,15273.250").
+    candidates = _split_glued_amounts(text.replace("\n", " ").strip())
+    if len(candidates) != 2:
+        candidates = _AMOUNT.findall(text.replace("\n", " "))
+    if len(candidates) == 2:
+        net = _maybe_decimal(candidates[0], thousands=".")
+        gross = _maybe_decimal(candidates[1], thousands=".")
+        if net and gross and any(
+            abs(net * rate - gross) <= net * rate * Decimal("0.005") for rate in _VAT_RATES
+        ):
+            return candidates[0].strip()
+    return text
+
+
 def _is_page_furniture(row: list[str]) -> bool:
     """True for a row that belongs to the page rather than to the bill of quantities.
 
@@ -983,7 +1024,12 @@ def clean_grid(grid: list[list[str]]) -> list[list[str]]:
 
     cleaned: list[list[str]] = []
     seen_headings: set[str] = set()
-    for row in rows:
+    for original in rows:
+        # Clean inside the cells first: a kept row may still be carrying the gross figure and the
+        # VAT line folded in with it.
+        row = [strip_vat(cell) for cell in original]
+        if not any(cell.strip() for cell in row):
+            continue
         if _is_page_furniture(row):
             continue
         if _looks_like_a_heading_row(row):

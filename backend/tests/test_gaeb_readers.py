@@ -419,6 +419,33 @@ def test_the_page_s_own_furniture_is_left_out_and_only_the_net_total_survives():
     assert kept.count("DIN 276") == 1
 
 
+def test_the_gross_is_removed_even_when_it_shares_a_cell_with_the_net():
+    """The row filter alone was not enough. An extractor folds two printed lines into ONE cell, so
+    "Außenanlagen und Freiflächen / Gesamt (inkl. MwSt. 19,0%), Brutto:" and both its amounts arrive
+    together — on a row carrying a cost group number, which must be kept. The gross is recognised by
+    the arithmetic already in the document: it is the net plus VAT."""
+    from app.services.gaeb.readers import clean_grid, strip_vat
+
+    assert strip_vat("Außenanlagen und Freiflächen\nGesamt (inkl. MwSt. 19,0%), Brutto:") == (
+        "Außenanlagen und Freiflächen"
+    )
+    assert strip_vat("2.218.779,50\n2.640.347,61") == "2.218.779,50"
+    assert strip_vat("229.622,15273.250") == "229.622,15"  # run together by the extractor
+    # Values that are not a net/gross pair are left exactly as they are.
+    assert strip_vat("1.850,40") == "1.850,40"
+    assert strip_vat("720 m2") == "720 m2"
+    assert strip_vat("Planum Erdbau") == "Planum Erdbau"
+
+    grid = [
+        ["500", "Außenanlagen\nGesamt (inkl. MwSt. 19,0%), Brutto:", "", "", "2.218.779,50\n2.640.347,61"],
+        ["1.03.01.01", "Planum Erdbau", "720 m2", "2,57", "1.850,40"],
+    ]
+    assert clean_grid(grid) == [
+        ["500", "Außenanlagen", "", "", "2.218.779,50"],
+        ["1.03.01.01", "Planum Erdbau", "720 m2", "2,57", "1.850,40"],
+    ]
+
+
 def test_two_amounts_extracted_into_one_cell_are_separated():
     """"229.622,15273.250" is the net total with the gross printed beside it, run together by the
     extractor. The cents of the first end where the digits of the second begin."""
