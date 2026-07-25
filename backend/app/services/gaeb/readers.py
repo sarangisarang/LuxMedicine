@@ -678,7 +678,9 @@ def _positions_from_grid(grid: list[list[str]]) -> tuple[list[Position], list[En
     has title rows above the table, so rather than assuming row 1, scan for the first row that maps to
     a description+quantity+unit and take it as the header. A header that repeats lower down (Word/PDF
     print it per page) is harmless: those rows carry no numeric quantity and are dropped."""
-    rows = [row for row in grid if any((c or "").strip() for c in row)]
+    # The page's own furniture — repeated headings, the footer, the VAT lines — is not part of the
+    # bill of quantities and is dropped before anything is read from the table.
+    rows = clean_grid(grid)
     if not rows:
         raise UnreadableFileError("there were no rows to read")
 
@@ -917,12 +919,96 @@ def read_grid(filename: str, data: bytes) -> list[list[str]]:
     return [row for row in csv.reader(io.StringIO(text), dialect) if any(c.strip() for c in row)]
 
 
+# --- page furniture -------------------------------------------------------------------------------
+#
+# A PDF extractor sees the whole page, so a printed table arrives with its surroundings: the column
+# headings repeated at the top of every page, and the footer carrying the document's own totals. Those
+# are not rows of the bill of quantities, and a footer that lands in the table reads as a position.
+#
+# The VAT lines go with them. A Kostenberechnung states its total three times — net, the VAT on top,
+# and the gross — and only the net belongs in an LV, so "zzgl. MwSt." and "Gesamt, Brutto" are
+# dropped while "Gesamt, Netto" stays. `netto` is deliberately absent from the list below.
+_FURNITURE_MARKERS = (
+    "brutto", "mwst", "mehrwertsteuer", "umsatzsteuer", "ust.",
+    "seite ", "page ", "kostenberechnung", "kostenschätzung",
+)
+
+# Two German amounts printed side by side and extracted as one cell: "229.622,15273.250" is the net
+# total followed by the gross. The cents of the first end exactly where the digits of the second
+# begin, which is what makes the split safe.
+_GLUED_AMOUNTS = re.compile(r"(\d{1,3}(?:\.\d{3})*,\d{2})(?=\d)")
+
+
+def _split_glued_amounts(cell: str) -> list[str]:
+    """["229.622,15", "273.250"] from "229.622,15273.250"; the cell unchanged if it is not glued."""
+    text = (cell or "").strip()
+    parts = [part for part in _GLUED_AMOUNTS.split(text) if part]
+    return parts if len(parts) > 1 else [text]
+
+
+def _is_page_furniture(row: list[str]) -> bool:
+    """True for a row that belongs to the page rather than to the bill of quantities.
+
+    A row carrying a cost-group or position number is never furniture, whatever else it says — that
+    guard is what stops a KG heading being dropped because the gross total was printed beside it.
+    """
+    cells = [(c or "").strip() for c in row]
+    joined = " ".join(c.lower() for c in cells if c)
+    if not joined:
+        return True
+    if any(kg_level(c) is not None or _POSITION_NUMBER.match(c) for c in cells):
+        return False
+    return any(marker in joined for marker in _FURNITURE_MARKERS)
+
+
+def _looks_like_a_heading_row(row: list[str]) -> bool:
+    """A row that names our fields rather than carrying values — the table's column headings."""
+    cells = [(c or "").strip() for c in row]
+    return len(_map_columns(cells)) >= 3 and not any(_is_numeric(c) for c in cells if c)
+
+
+def clean_grid(grid: list[list[str]]) -> list[list[str]]:
+    """The extracted table with the page's own furniture removed and glued amounts separated.
+
+    Widths are respected: a cell is split only when doing so brings the row to the width the rest of
+    the document uses, so a genuine value is never broken apart to make a row look tidy.
+    """
+    rows = [row for row in grid if any((c or "").strip() for c in row)]
+    if not rows:
+        return []
+    widths: dict[int, int] = {}
+    for row in rows:
+        widths[len(row)] = widths.get(len(row), 0) + 1
+    common = max(widths, key=lambda w: widths[w])
+
+    cleaned: list[list[str]] = []
+    seen_headings: set[str] = set()
+    for row in rows:
+        if _is_page_furniture(row):
+            continue
+        if _looks_like_a_heading_row(row):
+            # The first one names the columns and must survive; a PDF reprints it on every page, and
+            # those repeats are page furniture like any other.
+            signature = "|".join((c or "").strip().lower() for c in row)
+            if signature in seen_headings:
+                continue
+            seen_headings.add(signature)
+        if len(row) < common:
+            widened: list[str] = []
+            for cell in row:
+                widened.extend(_split_glued_amounts(cell))
+            if len(widened) == common:
+                row = widened
+        cleaned.append(row)
+    return cleaned
+
+
 def detect_columns(grid: list[list[str]]) -> tuple[dict[str, int], int]:
     """Our best guess at which column is which, and the row the data starts on.
 
     Returned rather than only used, so the interface can show the guess and let it be overruled.
     """
-    rows = [row for row in grid if any((c or "").strip() for c in row)]
+    rows = clean_grid(grid)
     if not rows:
         return {}, 0
     for i, candidate in enumerate(rows):

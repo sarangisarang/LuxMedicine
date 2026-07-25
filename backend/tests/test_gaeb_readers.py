@@ -393,6 +393,42 @@ def test_every_row_of_the_document_is_carried_across_not_only_the_positions():
     assert len(boq.positions) == 1
 
 
+def test_the_page_s_own_furniture_is_left_out_and_only_the_net_total_survives():
+    """A PDF brings the whole page: the headings repeated per page and the footer with the document's
+    totals. Those are not LV rows. And of the three totals a Kostenberechnung prints — net, VAT, gross
+    — only the net belongs here, so "zzgl. MwSt." and "Gesamt, Brutto" go."""
+    from app.services.gaeb.readers import clean_grid
+
+    grid = [
+        ["KG / OZ", "DIN 276", "Menge/Einheit", "Teilbetrag / EP", "Gesamt EUR"],
+        ["500", "Außenanlagen und Freiflächen", "", "", "2.218.779,50"],
+        ["", "Gesamt (inkl. MwSt. 19,0%), Brutto:", "", "", "2.640.347,61"],
+        ["1.03.01.01", "Planum Erdbau", "720 m2", "2,57", "1.850,40"],
+        ["KG / OZ", "DIN 276", "Menge/Einheit", "Teilbetrag / EP", "Gesamt EUR"],
+        ["KMZ, Köln", "Gesamt, Netto:", "", "", "229.622,15"],
+        ["KMZ, Köln", "zzgl. MwSt.:", "", "", "43.628,21"],
+    ]
+    kept = [row[1] for row in clean_grid(grid)]
+
+    assert "Außenanlagen und Freiflächen" in kept  # the cost group stays
+    assert "Planum Erdbau" in kept                  # so does the position
+    assert "Gesamt, Netto:" in kept                 # the net total stays
+    assert not any("Brutto" in text for text in kept)
+    assert not any("MwSt" in text for text in kept)
+    # The headings survive once — they name the columns — and the per-page repeat is dropped.
+    assert kept.count("DIN 276") == 1
+
+
+def test_two_amounts_extracted_into_one_cell_are_separated():
+    """"229.622,15273.250" is the net total with the gross printed beside it, run together by the
+    extractor. The cents of the first end where the digits of the second begin."""
+    from app.services.gaeb.readers import _split_glued_amounts
+
+    assert _split_glued_amounts("229.622,15273.250") == ["229.622,15", "273.250"]
+    assert _split_glued_amounts("1.850,40") == ["1.850,40"]  # a single amount is left alone
+    assert _split_glued_amounts("Planum Erdbau") == ["Planum Erdbau"]
+
+
 def test_kg_levels_follow_the_shape_of_the_number():
     from app.services.gaeb.readers import kg_level
 

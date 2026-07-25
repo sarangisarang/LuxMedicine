@@ -24,6 +24,7 @@ from app.services.gaeb.readers import (
     NoPositionsError,
     UnreadableFileError,
     UnsupportedFormatError,
+    clean_grid,
     detect_columns,
     detect_thousands_separator,
     parse_decimal,
@@ -258,8 +259,9 @@ async def parse_upload(
     # Publish the raw extraction too. If the guess below put a column in the wrong place, this is
     # what lets a person fix it — without it the only recourse is to describe the problem and wait.
     try:
-        grid = [[(c or "").strip() for c in row] for row in read_grid(file.filename or "", data)]
-        grid = [row for row in grid if any(row)]
+        grid = clean_grid(
+            [[(c or "").strip() for c in row] for row in read_grid(file.filename or "", data)]
+        )
         mapping, start = detect_columns(grid)
     except Exception:  # a raw view is a convenience; never fail the conversion for it
         grid, mapping, start = [], {}, 0
