@@ -469,6 +469,56 @@ def test_the_closing_total_keeps_its_label_and_figure_and_nothing_else():
     assert not any("KMZ" in " ".join(row) for row in cleaned)
 
 
+def test_an_interleaved_page_footer_is_recognised_even_when_its_words_are_broken_apart():
+    """The extractor reads several printed footer lines at once and splits words across cells:
+    "Gesamtsum | me: KMZ, Köln | Gesamt, Nzzg | etto: 2wSt.:rutto:". No whole word survives, so the
+    row is matched on its bare characters instead — "rutto" and "wst" are still in there."""
+    from app.services.gaeb.readers import clean_grid
+
+    grid = [
+        ["3.09.07.01", "Provisorische Zugänge", "1Ps...", "30.000,00", "30.000,00"],
+        ["Gesamtsum", "me: KMZ, Köln", "", "Gesamt, Nzzg", "etto: 2wSt.:rutto:", "29.622,15 EUR43.6"],
+    ]
+    cleaned = clean_grid(grid)
+    assert len(cleaned) == 1
+    assert cleaned[0][0] == "3.09.07.01"
+
+
+def test_a_cost_group_number_split_by_the_extractor_is_closed_up():
+    """"5 91" is 591 with a space the extractor inserted. Left as it is, the row is not a cost group
+    at all and everything below it loses its place in the hierarchy."""
+    from app.services.gaeb.readers import clean_grid, positions_from_rows
+
+    grid = [
+        ["KG / OZ", "DIN 276", "Menge/Einheit", "Teilbetrag / EP", "Gesamt EUR"],
+        ["5 90", "Sonstige Maßnahmen", "", "", "443.648,50"],
+        ["5 91", "Baustelleneinrichtung", "", "", "15.170,00"],
+        ["3.09.01.01", "Baustelleneinrichtung", "1Ps...", "12.850,00", "12.850,00"],
+    ]
+    rows = clean_grid(grid)
+    _, entries = positions_from_rows(rows[0], rows[1:])
+
+    assert [(e.kind, e.number) for e in entries] == [
+        ("kg", "590"),
+        ("kg", "591"),
+        ("position", "3.09.01.01"),
+    ]
+    assert entries[-1].kg == ("", "590 Sonstige Maßnahmen", "591 Baustelleneinrichtung")
+
+
+def test_a_quantity_whose_unit_the_source_abbreviated_is_still_read():
+    """"1Ps..." is one Pauschale with the unit cut short by the source's own column width. Insisting
+    on a recognisable unit dropped the position entirely — in the quantity column, a cell that begins
+    with a number is a quantity."""
+    csv = (
+        "OZ;Bezeichnung;Menge;EP;Gesamt\n"
+        "3.09.01.01;Baustelleneinrichtung;1Ps...;12.850,00;12.850,00\n"
+    ).encode("utf-8")
+    position = read_csv(csv, project_name="x").positions[0]
+    assert position.quantity == Decimal("1")
+    assert position.unit == "Ps"
+
+
 def test_two_amounts_extracted_into_one_cell_are_separated():
     """"229.622,15273.250" is the net total with the gross printed beside it, run together by the
     extractor. The cents of the first end where the digits of the second begin."""

@@ -562,6 +562,14 @@ def positions_from_rows(
         if quantity is None and qty_raw:
             number, split_unit = split_quantity_unit(qty_raw)
             quantity = _maybe_decimal(number, thousands=thousands) if split_unit else None
+        if quantity is None and qty_raw:
+            # This is the QUANTITY column, so a cell that begins with a number is a quantity, whatever
+            # follows it. Needed for a unit the source abbreviated past recognition — "1Ps..." for one
+            # Pauschale — where insisting on a known unit dropped the position altogether.
+            leading = re.match(r"^\s*([\d.,]+)\s*(.*)$", qty_raw)
+            if leading:
+                quantity = _maybe_decimal(leading.group(1), thousands=thousands)
+                split_unit = leading.group(2).strip().rstrip(".") or split_unit
         oz = (cell(row, "oz") or "").strip()
 
         if quantity is None:
@@ -987,6 +995,29 @@ def strip_vat(cell: str) -> str:
     return text
 
 
+# A page footer arrives interleaved: the extractor reads several printed lines at once and splits
+# words across cells, so "Gesamt, Netto: / zzgl. MwSt.: / Gesamt, Brutto:" comes out as
+# "Gesamtsum | me: KMZ, Köln | Gesamt, Nzzg | etto: 2wSt.:rutto:". Whole words no longer match, so the
+# row is squashed to bare letters and digits first and recognised by these fragments.
+_SQUASHED_MARKERS = ("rutto", "wst", "mehrwertsteuer", "umsatzsteuer")
+
+
+def _squash(text: str) -> str:
+    return re.sub(r"[^a-zäöüß0-9]", "", text.lower())
+
+
+def _normalise_kg_number(cell: str) -> str:
+    """"5 99" -> "599". A PDF extractor sometimes puts a space between the digits of a cost group
+    number, and the split number is then not recognised as a cost group at all, so the whole
+    hierarchy below it is lost. Only applied when closing the gap yields a real DIN 276 number, so a
+    value that merely looks similar is never altered."""
+    text = (cell or "").strip()
+    if " " not in text or not re.fullmatch(r"\d[\d ]*\d", text):
+        return text
+    closed = re.sub(r"\s+", "", text)
+    return closed if kg_level(closed) is not None else text
+
+
 def _is_page_furniture(row: list[str]) -> bool:
     """True for a row that belongs to the page rather than to the bill of quantities.
 
@@ -999,7 +1030,12 @@ def _is_page_furniture(row: list[str]) -> bool:
         return True
     if any(kg_level(c) is not None or _POSITION_NUMBER.match(c) for c in cells):
         return False
-    return any(marker in joined for marker in _FURNITURE_MARKERS)
+    if any(marker in joined for marker in _FURNITURE_MARKERS):
+        return True
+    # The same check against the row squashed to bare characters, for a footer whose words the
+    # extractor broke apart ("…Nzzg | etto: 2wSt.:rutto:" still contains "wst" and "rutto").
+    squashed = _squash(joined)
+    return any(marker in squashed for marker in _SQUASHED_MARKERS)
 
 
 def _looks_like_a_heading_row(row: list[str]) -> bool:
@@ -1058,6 +1094,11 @@ def clean_grid(grid: list[list[str]]) -> list[list[str]]:
         row = [strip_vat(cell) for cell in original]
         if not any(cell.strip() for cell in row):
             continue
+        # The cost-group number sits in the leading cell; close a gap the extractor put in it.
+        for i, cell in enumerate(row):
+            if cell.strip():
+                row[i] = _normalise_kg_number(cell)
+                break
         if _is_page_furniture(row):
             continue
         if _looks_like_a_heading_row(row):
